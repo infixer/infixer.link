@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:workers';
 import type { Handle } from '@sveltejs/kit/hooks';
+import { adjustCsp } from '#lib/server/csp.ts';
 
 /**
  * Security headers for every response (design §9.8). /api/* responses are produced
@@ -15,20 +16,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	headers.set('x-frame-options', 'DENY');
 	headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=()');
 
-	// SvelteKit only puts the per-request nonce into script-src. CodeMirror injects its
-	// base styles in a <style nonce> element (EditorView.cspNonce), so allow the same
-	// nonce for styles; without it the caret / selection layers lose their positioning.
-	let csp = headers.get('content-security-policy');
-	const nonce = csp && /'nonce-([^']+)'/.exec(csp)?.[1];
-	if (csp && nonce && !/style-src[^;]*'nonce-/.test(csp)) {
-		csp = csp.replace(/style-src ([^;]*)/, `style-src $1 'nonce-${nonce}'`);
-	}
-	// Images are served from the R2 custom domain in staging / production (ADR 0012).
-	const media = env.MEDIA_BASE_URL;
-	if (csp && media?.startsWith('https://')) {
-		csp = csp.replace(/img-src ([^;]*)/, `img-src $1 ${new URL(media).origin}`);
-	}
-	if (csp) headers.set('content-security-policy', csp);
+	const csp = headers.get('content-security-policy');
+	if (csp) headers.set('content-security-policy', adjustCsp(csp, env.MEDIA_BASE_URL));
 
 	if (path.startsWith('/owner')) {
 		headers.set('cache-control', 'no-store');
