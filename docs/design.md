@@ -6,6 +6,7 @@
 > - JSON API は **Hono** で実装する（同一 Worker 内。[ADR 0006](adr/0006-hono-api.md)）。§1.2・§2 の「API フレームワークを重ねない」はこれで置き換え。
 > - 本文の記法は **Cosense のリンク ＋ Markdown の装飾** の併用（[ADR 0009](adr/0009-hybrid-notation.md)）。§6.1 の記法一覧はこれで置き換え。
 > - URL だけの行は**リンクカード**として表示する（[ADR 0010](adr/0010-link-cards.md)）。
+> - 画像は Worker を経由して非公開の pending バケットに送り、検証してから公開の MEDIA にコピーする（[ADR 0012](adr/0012-images.md)）。§10.2 の署名付き PUT はこれで置き換え。
 > - Phase 0 の実証結果と設計への影響は [`implementation-status.md`](implementation-status.md) と [`adr/`](adr/) を参照。
 > - 以下は受領した設計本文（「次のプロンプト例」のみ省略、他は変更なし）。
 
