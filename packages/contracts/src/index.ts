@@ -230,4 +230,51 @@ export interface SessionSummaryDto {
 	current: boolean;
 }
 
+export interface LinkPreviewDto {
+	url: string;
+	ok: boolean;
+	title: string | null;
+	description: string | null;
+	siteName: string | null;
+	host: string;
+}
+
+export const LinkPreviewsRequest = v.strictObject({
+	urls: v.pipe(
+		v.array(v.pipe(v.string(), v.maxLength(2048), v.regex(/^https?:\/\//i))),
+		v.minLength(1),
+		v.maxLength(20)
+	)
+});
+
+export const NamesResolveRequest = v.strictObject({
+	names: v.pipe(v.array(v.pipe(v.string(), v.maxLength(400))), v.maxLength(1000))
+});
+
+export interface PageRefDto {
+	id: string;
+	title: string;
+}
+
+/** A link target: resolved to a live page, or a name without a page yet. */
+export interface LinkTargetDto {
+	name: string;
+	page: PageRefDto | null;
+}
+
+export interface RelatedDto {
+	/** Pages / names this page links to. */
+	links: LinkTargetDto[];
+	/** Pages linking to this page (any of its names). */
+	backlinks: PageRefDto[];
+	/** Other pages sharing a link target with this page, grouped by target. */
+	shared: { target: LinkTargetDto; pages: PageRefDto[]; more: boolean }[];
+}
+
+export interface TitleSuggestionDto {
+	title: string;
+	pageId: string;
+	alias: boolean;
+}
+
 export { v };

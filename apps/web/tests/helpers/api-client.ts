@@ -13,6 +13,7 @@ export const RP_ID = 'localhost';
 export const config = makeAuthConfig({ RP_ID, APP_ORIGINS: ORIGIN });
 
 const TABLES = [
+	'link_previews',
 	'pages_fts',
 	'changes',
 	'page_assets',

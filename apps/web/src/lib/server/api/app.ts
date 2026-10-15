@@ -17,12 +17,14 @@ import {
 	AuthenticationVerifyRequest,
 	CreatePageRequest,
 	DailyPageRequest,
+	LinkPreviewsRequest,
 	DeletePageRequest,
 	PasskeyNameRequest,
 	RegistrationVerifyRequest,
 	RestorePageRequest,
 	SetupOptionsRequest,
 	UpdatePageRequest,
+	NamesResolveRequest,
 	type SessionDto
 } from '@infixer-link/contracts';
 import { temporalSource } from '@infixer-link/time';
@@ -30,11 +32,17 @@ import { AUTH_TIMING, type AuthConfig } from '../config';
 import { ApiError, errorResponse, toIso } from '../http';
 import * as auth from '../auth/service';
 import * as pages from '../pages/service';
+import * as graph from '../pages/graph';
+import { refreshPreviews, type Fetcher } from '../previews';
 
 export interface ApiDeps {
 	db: D1Database;
 	config: AuthConfig;
 	now?: () => number;
+	/** Outbound fetch for link previews (injected in tests). */
+	fetcher?: Fetcher;
+	/** Local development only: allow previews of http://localhost URLs. */
+	allowLocalPreviews?: boolean;
 }
 
 type AppEnv = {
@@ -219,6 +227,10 @@ export function createApi(deps: ApiDeps) {
 			if (c.req.header('if-none-match') === etag) return c.body(null, 304);
 			return c.json(page);
 		})
+		.get('/pages/:id/related', pageId, async (c) => {
+			c.header('cache-control', 'no-cache');
+			return c.json(await graph.relatedPages(db, c.req.param('id')));
+		})
 		.get('/resolve', async (c) => {
 			const title = c.req.query('title') ?? '';
 			if (!title.trim() || title.length > 400)
@@ -355,6 +367,22 @@ export function createApi(deps: ApiDeps) {
 		)
 		.post('/pages/:id/restore', pageId, ...json(RestorePageRequest), async (c) =>
 			c.json(await pages.restorePage(db, c.req.param('id'), c.req.valid('json'), c.get('now')))
+		)
+		.get('/titles', async (c) => {
+			const limit = Number.parseInt(c.req.query('limit') ?? '', 10) || 20;
+			return c.json({ titles: await graph.suggestTitles(db, c.req.query('q') ?? '', limit) });
+		})
+		.post('/names/resolve', ...json(NamesResolveRequest), async (c) =>
+			c.json({ pages: await graph.resolveNames(db, c.req.valid('json').names) })
+		)
+		.post('/link-previews', ...json(LinkPreviewsRequest), async (c) =>
+			c.json({
+				previews: await refreshPreviews(db, c.req.valid('json').urls, {
+					fetcher: deps.fetcher ?? ((input, init) => fetch(input, init)),
+					allowLocal: deps.allowLocalPreviews ?? false,
+					now: c.get('now')
+				})
+			})
 		)
 		.get('/pages/:id/revisions', pageId, async (c) => {
 			const revisions = await pages.listRevisions(db, c.req.param('id'));
