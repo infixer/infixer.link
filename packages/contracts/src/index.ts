@@ -91,6 +91,20 @@ export const RestorePageRequest = v.strictObject({
 });
 export type RestorePageRequest = v.InferOutput<typeof RestorePageRequest>;
 
+export const DailyPageRequest = v.strictObject({
+	mutationId: uuid
+});
+export type DailyPageRequest = v.InferOutput<typeof DailyPageRequest>;
+
+export interface DailyPageDto {
+	pageId: string;
+	title: string;
+	revision: number;
+	dailyDate: string;
+	/** False when the daily page already existed. */
+	created: boolean;
+}
+
 export interface MutationResult {
 	pageId: string;
 	revision: number;

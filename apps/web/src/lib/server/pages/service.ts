@@ -9,6 +9,7 @@
  */
 import type {
 	CreatePageRequest,
+	DailyPageDto,
 	DeletePageRequest,
 	MutationResult,
 	OwnerPageDto,
@@ -512,4 +513,84 @@ export async function listRevisions(db: D1Database, id: string): Promise<Revisio
 		deleted: r.deleted_at !== null,
 		createdAt: toIso(r.created_at)
 	}));
+}
+
+/**
+ * Returns the daily page for `date`, creating an empty one if needed (design §8
+ * `POST /daily/{date}`). Concurrent calls never create two pages: the UNIQUE
+ * daily_date constraint decides and the loser reads the winner.
+ */
+export async function getOrCreateDaily(
+	db: D1Database,
+	date: string,
+	mutationId: string,
+	now: number
+): Promise<DailyPageDto> {
+	if (!parseDailyDate(date)) throw new ApiError('not_found', 'Invalid date');
+
+	const existing = () =>
+		db
+			.prepare('SELECT id, title, revision FROM pages WHERE daily_date = ? AND deleted_at IS NULL')
+			.bind(date)
+			.first<{ id: string; title: string; revision: number }>();
+
+	const found = await existing();
+	if (found) {
+		return {
+			pageId: found.id,
+			title: found.title,
+			revision: found.revision,
+			dailyDate: date,
+			created: false
+		};
+	}
+	const deleted = await db
+		.prepare('SELECT id FROM pages WHERE daily_date = ? AND deleted_at IS NOT NULL')
+		.bind(date)
+		.first<{ id: string }>();
+	if (deleted) {
+		throw new ApiError('page_deleted', 'The daily page for this date was deleted', {
+			pageId: deleted.id
+		});
+	}
+
+	try {
+		const result = await createPage(
+			db,
+			{ mutationId, title: date, format: 'link-text-v1', source: '', dailyDate: date },
+			now
+		);
+		return {
+			pageId: result.pageId,
+			title: date,
+			revision: result.revision,
+			dailyDate: date,
+			created: !result.replayed
+		};
+	} catch (error) {
+		if (error instanceof ApiError && error.code === 'daily_conflict') {
+			const winner = await existing();
+			if (winner) {
+				return {
+					pageId: winner.id,
+					title: winner.title,
+					revision: winner.revision,
+					dailyDate: date,
+					created: false
+				};
+			}
+		}
+		throw error;
+	}
+}
+
+/** Public lookup used by /daily/{date}: live page id for a date, if any. */
+export async function findDaily(
+	db: D1Database,
+	date: string
+): Promise<{ id: string; title: string } | null> {
+	return db
+		.prepare('SELECT id, title FROM pages WHERE daily_date = ? AND deleted_at IS NULL')
+		.bind(date)
+		.first<{ id: string; title: string }>();
 }

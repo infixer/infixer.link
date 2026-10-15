@@ -6,7 +6,10 @@ declare global {
 		// interface Error {}
 		// interface Locals {}
 		// interface PageData {}
-		// interface PageState {}
+		interface PageState {
+			/** Put the cursor in the editor right after navigation (a page was just created). */
+			edit?: boolean | 'title' | 'body';
+		}
 	}
 }
 

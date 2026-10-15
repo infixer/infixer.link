@@ -30,6 +30,10 @@ pnpm --filter web preview      # build 結果を wrangler dev（workerd）で配
 
 ローカルの D1 / R2 は Wrangler が `apps/web/.wrangler/` に作る（Git 対象外）。`pnpm dev` は起動前にマイグレーションを適用する。
 
+### 日記を書く
+
+ログイン後、ヘッダーの「今日」→「この日の日記を書く」でエディタが開きます（URL は変わりません）。既存ページは本文をクリックするか「編集」で編集できます。
+
 ### ローカルで本人ログインを試す
 
 ```sh

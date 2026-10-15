@@ -17,6 +17,12 @@ describe('today', () => {
 		expect(formatDailyDate(today(undefined, instant('2026-10-15T14:59:59Z')))).toBe('2026-10-15');
 	});
 
+	it('switches exactly at JST midnight (the /today boundary)', () => {
+		expect(formatDailyDate(today(undefined, instant('2026-10-15T14:59:59.999Z')))).toBe('2026-10-15');
+		expect(formatDailyDate(today(undefined, instant('2026-10-15T15:00:00Z')))).toBe('2026-10-16');
+		expect(formatDailyDate(today(undefined, instant('2026-12-31T15:00:00Z')))).toBe('2027-01-01');
+	});
+
 	it('respects an explicitly configured time zone', () => {
 		expect(formatDailyDate(today('UTC', instant('2026-10-15T15:30:00Z')))).toBe('2026-10-15');
 		expect(formatDailyDate(today('America/Los_Angeles', instant('2026-10-15T05:00:00Z')))).toBe(

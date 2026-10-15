@@ -97,3 +97,35 @@ export async function withReauth<T>(csrf: string, action: () => Promise<T>): Pro
 		throw error;
 	}
 }
+
+/**
+ * Tells the platform passkey manager which credentials are still valid so removed ones
+ * can be hidden or deleted (WebAuthn Signal API). Best effort: unsupported browsers ignore it.
+ */
+export async function signalAcceptedPasskeys(
+	rpId: string,
+	userHandle: string,
+	credentialIds: string[]
+) {
+	if (!userHandle) return;
+	try {
+		const { sendSignal } = await import('@simplewebauthn/browser');
+		await sendSignal({
+			signalName: 'allAcceptedCredentials',
+			rpID: rpId,
+			userID: userHandle,
+			allAcceptedCredentialIDs: credentialIds
+		});
+	} catch {
+		// Signal API not supported or rejected: nothing else to do.
+	}
+}
+
+export async function signalUnknownPasskey(rpId: string, credentialId: string) {
+	try {
+		const { sendSignal } = await import('@simplewebauthn/browser');
+		await sendSignal({ signalName: 'unknownCredential', rpID: rpId, credentialID: credentialId });
+	} catch {
+		// Not supported.
+	}
+}
