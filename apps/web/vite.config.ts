@@ -27,6 +27,8 @@ export default defineConfig({
 					// environment in hooks.server.ts (MEDIA_BASE_URL).
 					'img-src': ['self', 'data:', 'blob:'],
 					'connect-src': ['self'],
+					// YouTube player, loaded only after the reader presses play (ADR 0014).
+					'frame-src': ['https://www.youtube-nocookie.com'],
 					'font-src': ['self'],
 					'object-src': ['none'],
 					'base-uri': ['self'],

@@ -6,8 +6,16 @@
  *   allowed for local development); redirects are followed manually and re-checked.
  * - At most 512 KiB of HTML is read, with a 5 s timeout; only <head> metadata is kept.
  * - The og:image is copied into R2 (≤ 5 MiB, validated) and never hotlinked (ADR 0012).
+ * - YouTube (ADR 0014): title from oEmbed, thumbnail from i.ytimg.com (also copied into R2).
+ *   The video id comes from the URL, so the player works even if both requests fail.
  */
 import type { LinkPreviewDto } from '@infixer-link/contracts';
+import {
+	youtubeThumbnailUrl,
+	youtubeVideo,
+	youtubeWatchUrl,
+	type Video
+} from '@infixer-link/content';
 import { mediaUrl, storeRemoteImage } from './assets';
 import { IMAGE_LIMITS } from './images';
 
@@ -19,6 +27,9 @@ const MAX_REDIRECTS = 3;
 const FRESH_MS = 7 * 24 * 60 * 60 * 1000;
 const RETRY_ERROR_MS = 24 * 60 * 60 * 1000;
 const USER_AGENT = 'infixer.link link preview (+https://infixer.link)';
+const MAX_OEMBED_BYTES = 64 * 1024;
+/** Failed YouTube lookups are retried sooner: the player itself does not depend on them. */
+const RETRY_VIDEO_ERROR_MS = 10 * 60 * 1000;
 
 interface PreviewRow {
 	url: string;
@@ -225,10 +236,51 @@ export interface FetchedPreview {
 	final_url: string | null;
 }
 
+/** YouTube: oEmbed for the title / channel; the thumbnail URL is derived from the id. */
+async function fetchVideoPreview(
+	rawUrl: string,
+	video: Video,
+	options: { fetcher: Fetcher; allowLocal: boolean }
+): Promise<FetchedPreview> {
+	const base: FetchedPreview = {
+		url: rawUrl,
+		status: 'error',
+		title: null,
+		description: null,
+		site_name: 'YouTube',
+		image_url: youtubeThumbnailUrl(video),
+		final_url: youtubeWatchUrl(video)
+	};
+	try {
+		const endpoint = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(youtubeWatchUrl(video))}`;
+		const got = await safeGet(endpoint, 'application/json', options);
+		if (!got || !got.res.ok) {
+			await got?.res.body?.cancel();
+			return base;
+		}
+		const body = await readBytes(got.res, MAX_OEMBED_BYTES, true);
+		const json = JSON.parse(new TextDecoder().decode(body ?? new Uint8Array())) as {
+			title?: unknown;
+			author_name?: unknown;
+		};
+		const text = (v: unknown, max: number) => (typeof v === 'string' ? clean(v, max) : null);
+		return {
+			...base,
+			status: 'ok',
+			title: text(json.title, 300),
+			description: text(json.author_name, 200)
+		};
+	} catch {
+		return base;
+	}
+}
+
 export async function fetchPreview(
 	rawUrl: string,
 	options: { fetcher: Fetcher; allowLocal: boolean }
 ): Promise<FetchedPreview> {
+	const video = youtubeVideo(rawUrl);
+	if (video) return fetchVideoPreview(rawUrl, video, options);
 	const failed: FetchedPreview = {
 		url: rawUrl,
 		status: 'error',
@@ -336,7 +388,8 @@ export async function refreshPreviews(
 		const row = byUrl.get(u);
 		if (!row) return true;
 		const age = options.now - row.fetched_at;
-		return row.status === 'ok' ? age > FRESH_MS : age > RETRY_ERROR_MS;
+		if (row.status === 'ok') return age > FRESH_MS;
+		return age > (youtubeVideo(u) ? RETRY_VIDEO_ERROR_MS : RETRY_ERROR_MS);
 	});
 
 	for (let i = 0; i < stale.length; i += 4) {
@@ -344,7 +397,7 @@ export async function refreshPreviews(
 			stale.slice(i, i + 4).map(async (u) => {
 				const p = await fetchPreview(u, options);
 				let imageAssetId: string | null = null;
-				if (p.status === 'ok' && p.image_url && options.media) {
+				if (p.image_url && options.media) {
 					const bytes = await fetchImage(p.image_url, options);
 					if (bytes) {
 						imageAssetId = await storeRemoteImage(

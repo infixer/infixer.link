@@ -7,6 +7,7 @@
 	import type { AssetDto, LinkPreviewDto, PageRefDto } from '@infixer-link/contracts';
 	import { lineClass } from './classes.ts';
 	import Inlines from './Inlines.svelte';
+	import Video from './Video.svelte';
 
 	interface Props {
 		source: string;
@@ -30,7 +31,10 @@
 					line.contentFrom
 				) || NBSP}{:else if line.kind === 'code-open'}<span class="code-label"
 					>{line.lang ?? ''}</span
-				>{NBSP}{:else if card?.ok && card.title}<a
+				>{NBSP}{:else if line.video}<Video
+					video={line.video}
+					preview={card}
+				/>{:else if card?.ok && card.title}<a
 					class="card"
 					class:has-image={!!card.image}
 					href={line.url}
