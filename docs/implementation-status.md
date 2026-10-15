@@ -7,6 +7,7 @@
 | 0 基盤と性能・互換性の実証 | **完了（ローカル）** | `phase-0` |
 | 1 データと本人認証 | **実装完了（ローカル）。staging 検証待ち** | `phase-1`（`phase-0` の上） |
 | 2 日記を毎日書ける最小版 | **実装完了（ローカル）。実機 IME 未検証** | `phase-2`（`phase-1` の上） |
+| 3 Cosense 風のリンクと操作感 | **実装完了（ローカル）。実機 IME と補完の干渉は未検証** | `phase-3`（`phase-2` の上） |
 | 2〜10 | 未着手 | — |
 
 ## Phase 0（2026-10-15）
@@ -132,7 +133,45 @@ pnpm exec wrangler r2 bucket create infixer-link-backup-staging
 - staging での保存 API の p95・CPU 時間（staging 未作成）
 - Signal API が実際に効くか（対応ブラウザの実機）
 
-## 次：Phase 3 への引き継ぎ
+## Phase 3（2026-10-15）
+
+### 成果物
+
+- **記法**：Cosense のリンクと Markdown の装飾の併用（ADR 0009）。`packages/content/src/parse.ts` で行と行内要素を解析し、元テキスト上の位置も返す。
+- **閲覧画面**：`Rendered.svelte` で SSR 描画する。リンク名は 1 回のクエリでページに解決し、未作成のページはリンクの色を変えて `/t/{name}` に向ける。
+- **エディタの見たまま表示**（`live.ts`）
+  - 見た目：カーソルのない行は閲覧画面と同じ。リンクはクリックで移動、カードは widget で表示する。
+  - 補完：`[` と `#` でタイトルを補完する（IME の変換中は出さない）。
+  - 入力：Enter で箇条書きを続け、Tab でインデントする。
+- **リンクカード**（ADR 0010）：URL だけの行をカードにする。メタデータは本人の操作のときだけ取得して D1 にキャッシュし、公開ページはキャッシュを読むだけ。
+- **関連ページ**：このページへのリンク、同じリンク先を持つページ（別名は 1 つにまとめる。5 グループ × 10 件まで）、リンク先。
+- **API**：`GET /api/public/v1/pages/{id}/related`、`GET /api/owner/v1/titles`、`POST /api/owner/v1/names/resolve`、`POST /api/owner/v1/link-previews`
+- **画面**：`/t/{name}`（未作成ページの案内と、本人による作成、そのページへのリンク一覧）
+- **その他**：公開ページに OGP のメタ情報を追加。`docs/compatibility.md` を新設。
+
+### テスト結果（ローカル、2026-10-15）
+
+| コマンド | 結果 |
+|---|---|
+| `pnpm --filter './packages/**' test` | time 7 / content 30（記法の fixture、XSS につながる入力、病的な入力での速度） / contracts 5 passed |
+| `pnpm --filter web test:unit` | 21 passed |
+| `pnpm --filter web test:workers` | 69 passed（graph 6、previews 6 を追加） |
+| `pnpm --filter web test:e2e` | 54 passed / 28 skipped（links.e2e：描画・XSS・見たまま表示・リンク移動・未作成ページの作成・補完・箇条書きの継続・カード・関連ページ） |
+| check / lint | 0 errors |
+
+### 未検証
+
+- **実機の日本語 IME と補完の干渉**：変換中に `[` を打つ、確定の Enter で補完が確定しないか、など。自動テストは composition を通らない。
+- iPhone で、カーソルのない行のリンクをタップして移動できるか
+- 実際の外部サイトに対するリンクカードの取得成功率（staging から）
+- Cosense の実データでの表示（Phase 10）
+
+## 次：Phase 4 への引き継ぎ
+
+- R2 への画像アップロードと `[asset:UUID]` の表示。今は `[画像]` という文字を出している。
+- リンクカードの画像：`link_previews.image_url` を R2 に取り込んでから表示する（ADR 0010）。
+
+## 旧：Phase 3 への引き継ぎ（Phase 2 時点）
 
 - link-text-v1 の parser と SSR renderer（今は本文をそのまま表示）、リンク・タグの補完、alias、関連ページ。
 - エディタに装飾と補完を加えるときは、IME の composition 中に補完を確定しない。
