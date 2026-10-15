@@ -5,12 +5,15 @@
  * - Only http(s) on default ports; private / local hosts are refused (unless explicitly
  *   allowed for local development); redirects are followed manually and re-checked.
  * - At most 512 KiB of HTML is read, with a 5 s timeout; only <head> metadata is kept.
+ * - The og:image is copied into R2 (≤ 5 MiB, validated) and never hotlinked (ADR 0012).
  */
 import type { LinkPreviewDto } from '@infixer-link/contracts';
+import { mediaUrl, storeRemoteImage } from './assets';
+import { IMAGE_LIMITS } from './images';
 
 export type Fetcher = (input: string, init: RequestInit) => Promise<Response>;
 
-const MAX_BYTES = 512 * 1024;
+const MAX_HTML_BYTES = 512 * 1024;
 const TIMEOUT_MS = 5000;
 const MAX_REDIRECTS = 3;
 const FRESH_MS = 7 * 24 * 60 * 60 * 1000;
@@ -24,16 +27,32 @@ interface PreviewRow {
 	description: string | null;
 	site_name: string | null;
 	fetched_at: number;
+	image_key: string | null;
+	image_width: number | null;
+	image_height: number | null;
 }
 
-function toDto(row: PreviewRow): LinkPreviewDto {
+const SELECT_PREVIEWS = `SELECT p.url, p.status, p.title, p.description, p.site_name, p.fetched_at,
+	   a.object_key AS image_key, a.width AS image_width, a.height AS image_height
+	 FROM link_previews p LEFT JOIN assets a ON a.id = p.image_asset_id AND a.status = 'ready'
+	 WHERE p.url IN (SELECT value FROM json_each(?))`;
+
+function toDto(row: PreviewRow, mediaBaseUrl: string): LinkPreviewDto {
 	return {
 		url: row.url,
 		ok: row.status === 'ok',
 		title: row.title,
 		description: row.description,
 		siteName: row.site_name,
-		host: new URL(row.url).hostname
+		host: new URL(row.url).hostname,
+		image:
+			row.image_key && row.image_width && row.image_height
+				? {
+						url: mediaUrl(mediaBaseUrl, row.image_key),
+						width: row.image_width,
+						height: row.image_height
+					}
+				: null
 	};
 }
 
@@ -109,28 +128,64 @@ function clean(value: string | undefined | null, max: number): string | null {
 	return [...text].length > max ? [...text].slice(0, max - 1).join('') + '…' : text;
 }
 
-/** Reads at most MAX_BYTES of the body. */
-async function readLimited(res: Response): Promise<string> {
+/**
+ * Reads at most `max` bytes. With `strict`, a longer body is a failure (null);
+ * otherwise it is truncated (HTML: only the head matters).
+ */
+async function readBytes(res: Response, max: number, strict: boolean): Promise<Uint8Array | null> {
 	const reader = res.body?.getReader();
-	if (!reader) return '';
+	if (!reader) return new Uint8Array();
 	const chunks: Uint8Array[] = [];
 	let total = 0;
-	while (total < MAX_BYTES) {
+	for (;;) {
 		const { done, value } = await reader.read();
 		if (done) break;
+		if (total + value.byteLength > max) {
+			await reader.cancel().catch(() => {});
+			if (strict) return null;
+			chunks.push(value.subarray(0, max - total));
+			total = max;
+			break;
+		}
 		chunks.push(value);
 		total += value.byteLength;
 	}
-	await reader.cancel().catch(() => {});
-	const buf = new Uint8Array(Math.min(total, MAX_BYTES));
+	const out = new Uint8Array(total);
 	let offset = 0;
 	for (const chunk of chunks) {
-		const part = chunk.subarray(0, buf.length - offset);
-		buf.set(part, offset);
-		offset += part.length;
-		if (offset >= buf.length) break;
+		out.set(chunk, offset);
+		offset += chunk.byteLength;
 	}
-	return new TextDecoder().decode(buf);
+	return out;
+}
+
+/** GET with manual, re-checked redirects. */
+async function safeGet(
+	rawUrl: string,
+	accept: string,
+	options: { fetcher: Fetcher; allowLocal: boolean }
+): Promise<{ res: Response; url: URL } | null> {
+	let url = checkFetchable(rawUrl, options.allowLocal);
+	if (!url) return null;
+	const signal = AbortSignal.timeout(TIMEOUT_MS);
+	for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+		const res = await options.fetcher(url.toString(), {
+			redirect: 'manual',
+			signal,
+			headers: { 'user-agent': USER_AGENT, accept }
+		});
+		if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+			await res.body?.cancel();
+			url = checkFetchable(
+				new URL(res.headers.get('location')!, url).toString(),
+				options.allowLocal
+			);
+			if (!url) return null;
+			continue;
+		}
+		return { res, url };
+	}
+	return null;
 }
 
 /** Extracts OGP / Twitter / <title> / description from the head of an HTML document. */
@@ -140,10 +195,8 @@ export function extractMeta(html: string): {
 	siteName?: string;
 	image?: string;
 } {
-	const head = html.slice(
-		0,
-		html.search(/<\/head>/i) === -1 ? html.length : html.search(/<\/head>/i)
-	);
+	const end = html.search(/<\/head>/i);
+	const head = html.slice(0, end === -1 ? html.length : end);
 	const meta: Record<string, string> = {};
 	for (const tag of head.matchAll(/<meta\b[^>]*>/gi)) {
 		const attrs: Record<string, string> = {};
@@ -162,53 +215,43 @@ export function extractMeta(html: string): {
 	};
 }
 
+export interface FetchedPreview {
+	url: string;
+	status: 'ok' | 'error';
+	title: string | null;
+	description: string | null;
+	site_name: string | null;
+	image_url: string | null;
+	final_url: string | null;
+}
+
 export async function fetchPreview(
 	rawUrl: string,
 	options: { fetcher: Fetcher; allowLocal: boolean }
-): Promise<
-	Omit<PreviewRow, 'fetched_at'> & { image_url: string | null; final_url: string | null }
-> {
-	const failed = {
+): Promise<FetchedPreview> {
+	const failed: FetchedPreview = {
 		url: rawUrl,
-		status: 'error' as const,
+		status: 'error',
 		title: null,
 		description: null,
 		site_name: null,
 		image_url: null,
 		final_url: null
 	};
-	let url = checkFetchable(rawUrl, options.allowLocal);
-	if (!url) return failed;
-
 	try {
-		const signal = AbortSignal.timeout(TIMEOUT_MS);
-		let res: Response | null = null;
-		for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-			res = await options.fetcher(url.toString(), {
-				redirect: 'manual',
-				signal,
-				headers: { 'user-agent': USER_AGENT, accept: 'text/html,application/xhtml+xml' }
-			});
-			if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
-				await res.body?.cancel();
-				const next = checkFetchable(
-					new URL(res.headers.get('location')!, url).toString(),
-					options.allowLocal
-				);
-				if (!next) return failed;
-				url = next;
-				res = null;
-				continue;
-			}
-			break;
+		const got = await safeGet(rawUrl, 'text/html,application/xhtml+xml', options);
+		if (!got || !got.res.ok) {
+			await got?.res.body?.cancel();
+			return failed;
 		}
-		if (!res || !res.ok) return failed;
+		const { res, url } = got;
 		const type = res.headers.get('content-type') ?? '';
 		if (!/text\/html|application\/xhtml\+xml/i.test(type)) {
 			await res.body?.cancel();
-			return { ...failed, status: 'ok', title: null, final_url: url.toString() };
+			return { ...failed, status: 'ok', final_url: url.toString() };
 		}
-		const meta = extractMeta(await readLimited(res));
+		const body = await readBytes(res, MAX_HTML_BYTES, false);
+		const meta = extractMeta(new TextDecoder().decode(body ?? new Uint8Array()));
 		let image: string | null = null;
 		if (meta.image) {
 			try {
@@ -233,36 +276,61 @@ export async function fetchPreview(
 	}
 }
 
+/** Downloads a card image with the same safety rules (≤ 5 MiB, image/* only). */
+export async function fetchImage(
+	rawUrl: string,
+	options: { fetcher: Fetcher; allowLocal: boolean }
+): Promise<ArrayBuffer | null> {
+	try {
+		const got = await safeGet(rawUrl, 'image/*', options);
+		if (!got) return null;
+		const { res } = got;
+		const declared = Number(res.headers.get('content-length') ?? 0);
+		if (
+			!res.ok ||
+			!/^image\//i.test(res.headers.get('content-type') ?? '') ||
+			declared > IMAGE_LIMITS.maxPreviewBytes
+		) {
+			await res.body?.cancel();
+			return null;
+		}
+		const bytes = await readBytes(res, IMAGE_LIMITS.maxPreviewBytes, true);
+		return bytes
+			? (bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer)
+			: null;
+	} catch {
+		return null;
+	}
+}
+
 /** Public read path: cached previews only. */
 export async function getPreviews(
 	db: D1Database,
-	urls: string[]
+	urls: string[],
+	mediaBaseUrl: string
 ): Promise<Record<string, LinkPreviewDto>> {
 	if (urls.length === 0) return {};
 	const { results } = await db
-		.prepare(
-			`SELECT url, status, title, description, site_name, fetched_at FROM link_previews
-			 WHERE url IN (SELECT value FROM json_each(?))`
-		)
+		.prepare(SELECT_PREVIEWS)
 		.bind(JSON.stringify(urls.slice(0, 200)))
 		.all<PreviewRow>();
-	return Object.fromEntries(results.map((r) => [r.url, toDto(r)]));
+	return Object.fromEntries(results.map((r) => [r.url, toDto(r, mediaBaseUrl)]));
 }
 
 /** Owner path: fetches missing or stale previews (up to 20 URLs, 4 at a time). */
 export async function refreshPreviews(
 	db: D1Database,
 	urls: string[],
-	options: { fetcher: Fetcher; allowLocal: boolean; now: number }
+	options: {
+		fetcher: Fetcher;
+		allowLocal: boolean;
+		now: number;
+		/** When given, card images are copied into R2 (ADR 0012). */
+		media?: { bucket: R2Bucket; baseUrl: string };
+	}
 ): Promise<Record<string, LinkPreviewDto>> {
 	const unique = [...new Set(urls)].slice(0, 20);
-	const cached = await db
-		.prepare(
-			`SELECT url, status, title, description, site_name, fetched_at FROM link_previews
-			 WHERE url IN (SELECT value FROM json_each(?))`
-		)
-		.bind(JSON.stringify(unique))
-		.all<PreviewRow>();
+	const cached = await db.prepare(SELECT_PREVIEWS).bind(JSON.stringify(unique)).all<PreviewRow>();
 	const byUrl = new Map(cached.results.map((r) => [r.url, r]));
 	const stale = unique.filter((u) => {
 		const row = byUrl.get(u);
@@ -272,16 +340,34 @@ export async function refreshPreviews(
 	});
 
 	for (let i = 0; i < stale.length; i += 4) {
-		const fetched = await Promise.all(stale.slice(i, i + 4).map((u) => fetchPreview(u, options)));
+		const fetched = await Promise.all(
+			stale.slice(i, i + 4).map(async (u) => {
+				const p = await fetchPreview(u, options);
+				let imageAssetId: string | null = null;
+				if (p.status === 'ok' && p.image_url && options.media) {
+					const bytes = await fetchImage(p.image_url, options);
+					if (bytes) {
+						imageAssetId = await storeRemoteImage(
+							{ db, media: options.media.bucket },
+							bytes,
+							options.now
+						).catch(() => null);
+					}
+				}
+				return { ...p, imageAssetId };
+			})
+		);
 		await db.batch(
 			fetched.map((p) =>
 				db
 					.prepare(
-						`INSERT INTO link_previews (url, status, title, description, site_name, image_url, final_url, fetched_at)
-						 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+						`INSERT INTO link_previews (url, status, title, description, site_name, image_url,
+						   final_url, image_asset_id, fetched_at)
+						 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 						 ON CONFLICT (url) DO UPDATE SET status = excluded.status, title = excluded.title,
 						   description = excluded.description, site_name = excluded.site_name,
-						   image_url = excluded.image_url, final_url = excluded.final_url, fetched_at = excluded.fetched_at`
+						   image_url = excluded.image_url, final_url = excluded.final_url,
+						   image_asset_id = excluded.image_asset_id, fetched_at = excluded.fetched_at`
 					)
 					.bind(
 						p.url,
@@ -291,13 +377,15 @@ export async function refreshPreviews(
 						p.site_name,
 						p.image_url,
 						p.final_url,
+						p.imageAssetId,
 						options.now
 					)
 			)
 		);
-		for (const p of fetched) byUrl.set(p.url, { ...p, fetched_at: options.now });
 	}
+	// Re-read so image URLs and dimensions come from the assets table.
+	const fresh = await db.prepare(SELECT_PREVIEWS).bind(JSON.stringify(unique)).all<PreviewRow>();
 	return Object.fromEntries(
-		unique.filter((u) => byUrl.has(u)).map((u) => [u, toDto(byUrl.get(u)!)])
+		fresh.results.map((r) => [r.url, toDto(r, options.media?.baseUrl ?? '')])
 	);
 }
