@@ -34,6 +34,9 @@ importers:
       '@infixer-link/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@infixer-link/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
       '@infixer-link/time':
         specifier: workspace:*
         version: link:../../packages/time
@@ -131,6 +134,15 @@ importers:
       valibot:
         specifier: ^1.5.0
         version: 1.5.0(typescript@6.0.3)
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@types/node@24.19.2)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2))
+
+  packages/sync:
     devDependencies:
       typescript:
         specifier: ^6.0.3
