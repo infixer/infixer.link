@@ -84,7 +84,25 @@
 		);
 	}
 
+	/** Unsent data on this device decides what logging out offers (design §4.4). */
+	let unsent = $state<{ drafts: number; images: number } | null>(null);
+
 	async function logout() {
+		const { localSummary } = await import('#lib/offline/local-data.ts');
+		const summary = await localSummary();
+		if (summary.drafts || summary.images) {
+			unsent = summary;
+			return;
+		}
+		await finishLogout('keep');
+	}
+
+	async function finishLogout(data: 'keep' | 'export-and-delete') {
+		if (data === 'export-and-delete') {
+			const { downloadLocalData, deleteLocalData } = await import('#lib/offline/local-data.ts');
+			await downloadLocalData();
+			await deleteLocalData();
+		}
 		await run(() => api('/api/auth/v1/logout', { body: {}, csrf: csrf() }));
 		location.assign('/');
 	}
@@ -160,10 +178,35 @@
 </section>
 
 <section>
-	<button type="button" onclick={logout} disabled={busy}>この端末からログアウト</button>
+	{#if unsent}
+		<div class="unsent" data-testid="logout-choice">
+			<p>
+				この端末には、まだ送信していない変更があります（ページ {unsent.drafts} 件、画像 {unsent.images}
+				件）。
+			</p>
+			<button type="button" onclick={() => finishLogout('keep')} disabled={busy}
+				>端末に残してログアウト（次にログインしたときに送信）</button
+			>
+			<button
+				type="button"
+				onclick={() => finishLogout('export-and-delete')}
+				disabled={busy}
+				data-testid="logout-export-delete">ダウンロードしてから削除してログアウト</button
+			>
+			<button type="button" onclick={() => (unsent = null)}>キャンセル</button>
+		</div>
+	{:else}
+		<button type="button" onclick={logout} disabled={busy}>この端末からログアウト</button>
+	{/if}
 </section>
 
 <style>
+	.unsent {
+		display: grid;
+		gap: var(--space-2);
+		justify-items: start;
+	}
+
 	h1 {
 		font-size: 1.5rem;
 		margin: 0 0 var(--space-3);

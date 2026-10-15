@@ -20,9 +20,21 @@
 	} from '@infixer-link/contracts';
 	import { livePreview, type LiveData, type LivePreview } from './live.ts';
 	import { Uploads } from './uploads.svelte.ts';
-	import { Autosave, STATE_LABEL, restore, type SaveState, type ServerPage } from './autosave.ts';
+	import {
+		Autosave,
+		STATE_LABEL,
+		restore,
+		type SaveState,
+		type ServerPage,
+		type Snapshot
+	} from './autosave.ts';
 	import { idbDraftStore } from './draft-store.ts';
 	import { httpTransport, type CsrfSource } from './transport.ts';
+	import ConflictResolver from './ConflictResolver.svelte';
+	import { deleteStoredUpload, storedUploads } from './uploads.svelte.ts';
+	import { acquirePageLock } from '../offline/locks.ts';
+	import { registerFlush } from '../offline/flush.ts';
+	import { localDb } from './local-db.ts';
 
 	interface Props {
 		pageId: string;
@@ -37,6 +49,8 @@
 		assets: Record<string, AssetDto>;
 		onready: () => void;
 		ondeleted: (revision: number) => void;
+		/** A page created on this device was saved on the server for the first time. */
+		oncreated?: (pageId: string) => void;
 	}
 
 	let {
@@ -48,7 +62,8 @@
 		previews,
 		assets,
 		onready,
-		ondeleted
+		ondeleted,
+		oncreated
 	}: Props = $props();
 
 	async function postJson<T>(path: string, body: unknown): Promise<T | null> {
@@ -59,12 +74,16 @@
 				credentials: 'same-origin',
 				body: JSON.stringify(body)
 			});
-		let res = await send(csrf.get());
-		if (res.status === 403) {
-			const token = await csrf.refresh();
-			if (token) res = await send(token);
+		try {
+			let res = await send(csrf.get());
+			if (res.status === 403) {
+				const token = await csrf.refresh();
+				if (token) res = await send(token);
+			}
+			return res.ok ? ((await res.json()) as T) : null;
+		} catch {
+			return null; // offline: names and cards are looked up again later
 		}
-		return res.ok ? ((await res.json()) as T) : null;
 	}
 
 	async function fetchMissing(missing: {
@@ -116,7 +135,13 @@
 	let updatedAt = $state('');
 	let notice = $state('');
 	let conflictServer = $state<ServerPage | null>(null);
+	/** Common base of the conflict, when known. */
+	let conflictBase = $state<Snapshot | undefined>(undefined);
+	/** Created on this device, but another device created the day's page first. */
+	let existingPageId = $state<string | null>(null);
 	let announce = $state('');
+	let releaseLock: (() => void) | undefined;
+	let unregisterFlush: (() => void) | undefined;
 
 	const clock = {
 		now: () => Date.now(),
@@ -149,6 +174,9 @@
 	}
 
 	onMount(async () => {
+		// One sender per page: the background outbox sync skips pages open here, and a run
+		// already sending this page finishes before the draft is read (ADR 0015).
+		releaseLock = await acquirePageLock(pageId);
 		const server: ServerPage = {
 			title: initial.title,
 			source: initial.source,
@@ -221,6 +249,9 @@
 			transport: httpTransport(csrf),
 			clock
 		});
+		unregisterFlush = registerFlush(() => auto?.flushLocal() ?? Promise.resolve());
+		let firstConflict = true;
+		let wasLocalOnly = auto.localOnly;
 		// Pages referencing images that are still uploading stay local (design §10.2).
 		auto.setHold((snapshot) => uploads.isPending(snapshot.source));
 		void uploads.resume(start.current.source);
@@ -241,13 +272,26 @@
 			) {
 				announce = STATE_LABEL[state];
 			}
-			if (state === 'conflict') {
-				const fresh = start.conflict?.server ?? (await fetchLatest());
+			if (wasLocalOnly && auto && !auto.localOnly) {
+				wasLocalOnly = false;
+				oncreated?.(pageId);
+			}
+			if (state === 'conflict' && auto) {
+				if (auto.conflictInfo.existingPageId) {
+					existingPageId = auto.conflictInfo.existingPageId;
+					return;
+				}
+				// Restored conflicts carry the draft's base; later ones use the last synced copy.
+				const base = firstConflict && start.conflict ? start.conflict.base : auto.base;
+				const fresh = (firstConflict && start.conflict?.server) || (await fetchLatest());
+				firstConflict = false;
 				if (fresh) {
+					conflictBase = base;
 					conflictServer = { title: fresh.title, source: fresh.source, revision: fresh.revision };
 				}
 			}
 		});
+		void checkStorage();
 
 		onready();
 		await tick(); // the parent un-hides this layer; hidden elements cannot take focus
@@ -279,7 +323,8 @@
 	}
 
 	onDestroy(() => {
-		void auto?.flushLocal();
+		void auto?.flushLocal().finally(() => releaseLock?.());
+		unregisterFlush?.();
 		auto?.dispose();
 		uploads.dispose();
 		view?.destroy();
@@ -412,11 +457,13 @@
 		URL.revokeObjectURL(a.href);
 	}
 
-	async function keepLocal() {
+	async function saveResolved(snapshot: Snapshot) {
 		if (!auto || !conflictServer) return;
 		const server = conflictServer;
 		conflictServer = null;
-		await auto.resolveConflict('keep-local', server);
+		title = snapshot.title;
+		replaceDoc(snapshot.source);
+		await auto.resolveConflict({ use: snapshot }, server);
 	}
 
 	async function takeServer() {
@@ -429,7 +476,66 @@
 		replaceDoc(server.source);
 	}
 
+	/**
+	 * The day's page was created on another device while this one was offline: add this
+	 * device's text to the end of that page (as an ordinary edit, still saved by autosave).
+	 */
+	async function appendToExisting() {
+		if (!auto || !existingPageId) return;
+		const res = await fetch(`/api/owner/v1/pages/${existingPageId}`, {
+			credentials: 'same-origin',
+			cache: 'no-store'
+		}).catch(() => null);
+		if (!res?.ok) {
+			notice = 'サーバーの日記を取得できませんでした。接続を確認してください。';
+			return;
+		}
+		const existing = (await res.json()) as OwnerPageDto;
+		const mine = auto.snapshot.source.trim();
+		const source = existing.source.trimEnd() ? `${existing.source.trimEnd()}\n${mine}` : mine;
+		await idbDraftStore.put({
+			pageId: existing.id,
+			title: existing.title,
+			source,
+			baseRevision: existing.revision,
+			base: { title: existing.title, source: existing.source },
+			savedAt: Date.now()
+		});
+		// Images waiting to be uploaded move with the text.
+		const db = await localDb();
+		for (const upload of await storedUploads(pageId)) {
+			await db.put('uploads', { ...upload, pageId: existing.id });
+		}
+		await idbDraftStore.delete(pageId);
+		location.assign(`/p/${existing.id}/${encodeURIComponent(existing.title)}`);
+	}
+
+	async function discardLocalOnly() {
+		if (!confirm('この端末だけにあるページを削除しますか？（ダウンロードしてから削除します）'))
+			return;
+		downloadLocal();
+		for (const upload of await storedUploads(pageId).catch(() => [])) {
+			await deleteStoredUpload(upload.assetId);
+		}
+		await idbDraftStore.delete(pageId);
+		ondeleted(0);
+	}
+
+	/** Asks the browser to keep this site's storage, and warns when it is almost full. */
+	async function checkStorage() {
+		try {
+			await navigator.storage?.persist?.();
+			const estimate = await navigator.storage?.estimate?.();
+			if (estimate?.quota && estimate.usage && estimate.usage / estimate.quota > 0.9) {
+				notice = `端末の保存領域が残りわずかです（${Math.round((estimate.usage / estimate.quota) * 100)}% 使用中）。未送信の下書きはダウンロードできます。`;
+			}
+		} catch {
+			// not supported
+		}
+	}
+
 	async function remove() {
+		if (auto?.localOnly) return discardLocalOnly();
 		if (!auto || !confirm('このページを削除しますか？ 履歴は残り、あとから元に戻せます。')) return;
 		await auto.flushLocal();
 		const send = (token: string) =>
@@ -476,6 +582,9 @@
 		<span class="status" data-state={saveState} data-testid="save-state"
 			>{saveState === 'clean' ? '' : STATE_LABEL[saveState]}</span
 		>
+		{#if auto?.localOnly}<span class="local-only" data-testid="local-only"
+				>この端末だけに保存（未公開）</span
+			>{/if}
 		<button type="button" class="link" onclick={pickImages} data-testid="add-image">画像</button>
 		<button type="button" class="link" onclick={remove}>削除</button>
 		<input
@@ -526,22 +635,24 @@
 	{/if}
 
 	{#if conflictServer && auto}
-		<section class="conflict" data-testid="conflict">
-			<p>別の端末などで、このページが先に更新されていました。どちらを残すか選んでください。</p>
-			<div class="panes">
-				<div>
-					<h3>この端末の内容</h3>
-					<pre>{`${auto.snapshot.title}\n\n${auto.snapshot.source}`}</pre>
-				</div>
-				<div>
-					<h3>サーバーの最新版（版 {conflictServer.revision}）</h3>
-					<pre>{`${conflictServer.title}\n\n${conflictServer.source}`}</pre>
-				</div>
-			</div>
-			<button type="button" onclick={keepLocal}>この端末の内容で上書き</button>
-			<button type="button" onclick={takeServer}
-				>サーバーの版を使う（この端末の内容はファイルに保存）</button
+		<ConflictResolver
+			base={conflictBase}
+			local={auto.snapshot}
+			server={conflictServer}
+			onsave={saveResolved}
+			ontakeserver={takeServer}
+		/>
+	{/if}
+
+	{#if existingPageId}
+		<section class="collision" data-testid="daily-collision">
+			<p>
+				この日の日記は、別の端末で先に作成されていました。この端末で書いた内容は消えていません。
+			</p>
+			<button type="button" onclick={appendToExisting} data-testid="append-to-existing"
+				>サーバーの日記の末尾に追加して開く</button
 			>
+			<button type="button" onclick={downloadLocal}>この端末の内容をダウンロード</button>
 		</section>
 	{/if}
 
@@ -606,35 +717,21 @@
 		overflow-wrap: anywhere;
 	}
 
-	.conflict {
+	.collision {
 		margin-bottom: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		border: 1px solid var(--color-danger);
+		border-radius: 0.5rem;
 	}
 
-	.conflict .panes {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-		gap: var(--space-2);
-	}
-
-	.conflict pre {
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
-		max-height: 40dvh;
-		overflow: auto;
-		padding: var(--space-2);
-		border: 1px solid var(--color-border);
-		font-family: var(--font-body);
-	}
-
-	.conflict button {
+	.collision button {
 		min-height: 44px;
 		padding: 0 var(--space-3);
 		font: inherit;
 	}
 
-	h3 {
-		font-size: 0.9375rem;
-		margin: 0;
+	.local-only::before {
+		content: '・';
 	}
 
 	.body :global(.cm-content) {

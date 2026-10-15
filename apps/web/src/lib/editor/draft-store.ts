@@ -2,7 +2,7 @@
 import type { Draft, DraftStore } from './autosave.ts';
 import { localDb } from './local-db.ts';
 
-export const idbDraftStore: DraftStore = {
+export const idbDraftStore: DraftStore & { all(): Promise<Draft[]> } = {
 	async get(pageId) {
 		return (await localDb()).get('drafts', pageId) as Promise<Draft | undefined>;
 	},
@@ -12,5 +12,8 @@ export const idbDraftStore: DraftStore = {
 	},
 	async delete(pageId) {
 		await (await localDb()).delete('drafts', pageId);
+	},
+	async all() {
+		return (await (await localDb()).getAll('drafts')) as Draft[];
 	}
 };

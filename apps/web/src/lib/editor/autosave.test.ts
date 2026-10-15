@@ -3,6 +3,7 @@ import {
 	Autosave,
 	restore,
 	type Clock,
+	type CreateIntent,
 	type Draft,
 	type DraftStore,
 	type PendingMutation,
@@ -63,13 +64,22 @@ class MemoryStore implements DraftStore {
 class FakeServer {
 	revision = 1;
 	page = { title: 't', source: '' };
-	calls: { base: number; mutation: PendingMutation }[] = [];
+	calls: { base: number; mutation: PendingMutation; create?: CreateIntent }[] = [];
+	/** Set to make a create fail as a daily page already created elsewhere. */
+	dailyTakenBy: string | null = null;
 	applied = new Map<string, number>();
 	mode: 'ok' | 'offline' | 'auth' | 'server' | 'lose-response' = 'ok';
 	gate: Promise<void> | null = null;
 
-	save = async (_id: string, base: number, mutation: PendingMutation): Promise<SendResult> => {
-		this.calls.push({ base, mutation: { ...mutation } });
+	save = async (
+		_id: string,
+		base: number,
+		mutation: PendingMutation,
+		create?: CreateIntent
+	): Promise<SendResult> => {
+		this.calls.push({ base, mutation: { ...mutation }, create });
+		if (create && this.dailyTakenBy)
+			return { ok: false, kind: 'conflict', existingPageId: this.dailyTakenBy };
 		if (this.gate) await this.gate;
 		if (this.mode === 'offline') return { ok: false, kind: 'offline' };
 		if (this.mode === 'auth') return { ok: false, kind: 'auth' };
@@ -196,7 +206,10 @@ describe('Autosave', () => {
 		await clock.advance(6000);
 		expect(server.calls).toHaveLength(1);
 
-		await auto.resolveConflict('keep-local', { ...server.page, revision: server.revision });
+		await auto.resolveConflict(
+			{ use: auto.snapshot },
+			{ ...server.page, revision: server.revision }
+		);
 		await clock.advance(0);
 		expect(server.page.source).toBe('mine, more');
 		expect(auto.state).toBe('synced');
@@ -342,6 +355,110 @@ describe('restore', () => {
 		expect(auto.state).toBe('local-saved');
 		await clock.advance(1000);
 		expect(fake.page.source).toBe('local');
+		expect(auto.state).toBe('synced');
+	});
+});
+
+describe('Phase 6: base content, offline creation and conflicts', () => {
+	it('stores the server-confirmed content with the draft as the three-way base', async () => {
+		const { clock, store, server, auto } = setup({ title: 't', source: 'base', revision: 4 });
+		server.mode = 'offline';
+		auto.edit({ title: 't', source: 'base + local' });
+		await clock.advance(300);
+		expect(store.drafts.get('p1')).toMatchObject({
+			baseRevision: 4,
+			base: { title: 't', source: 'base' },
+			source: 'base + local'
+		});
+	});
+
+	it('restore() reports the stored base with a conflict, but only for an older revision', () => {
+		const draft: Draft = {
+			pageId: 'p1',
+			title: 't',
+			source: 'local',
+			baseRevision: 2,
+			base: { title: 't', source: 'base' },
+			savedAt: 0
+		};
+		const r = restore({ title: 't', source: 'server', revision: 3 }, draft);
+		expect(r.conflict).toEqual({
+			local: { title: 't', source: 'local' },
+			server: { title: 't', source: 'server', revision: 3 },
+			base: { title: 't', source: 'base' }
+		});
+		// A draft flagged as conflicting by the background sync stays a conflict on reopen.
+		const flagged = restore(
+			{ title: 't', source: 'server', revision: 2 },
+			{ ...draft, conflict: true }
+		);
+		expect(flagged.conflict?.base).toBeUndefined();
+		expect(flagged.conflict?.local.source).toBe('local');
+	});
+
+	it('creates a page made on this device with its first save, then updates it', async () => {
+		const draft: Draft = {
+			pageId: 'p1',
+			title: '2026-10-16',
+			source: 'オフラインで書いた',
+			baseRevision: 0,
+			create: { dailyDate: '2026-10-16' },
+			savedAt: 0
+		};
+		const { clock, store, server, auto } = setup({ title: '', source: '', revision: 0 }, draft);
+		server.revision = 0;
+		expect(auto.localOnly).toBe(true);
+		await clock.advance(1000);
+		expect(server.calls[0]).toMatchObject({ base: 0, create: { dailyDate: '2026-10-16' } });
+		expect(auto.state).toBe('synced');
+		expect(auto.localOnly).toBe(false);
+		expect(auto.revision).toBe(1);
+
+		auto.edit({ title: '2026-10-16', source: 'オフラインで書いた。続き' });
+		await clock.advance(1000);
+		expect(server.calls[1]).toMatchObject({ base: 1, create: undefined });
+		expect(store.drafts.size).toBe(0);
+	});
+
+	it('keeps a locally created daily page as a conflict when another device created it first', async () => {
+		const draft: Draft = {
+			pageId: 'p1',
+			title: '2026-10-16',
+			source: '端末の日記',
+			baseRevision: 0,
+			create: { dailyDate: '2026-10-16' },
+			savedAt: 0
+		};
+		const { clock, store, server, auto } = setup({ title: '', source: '', revision: 0 }, draft);
+		server.revision = 0;
+		server.dailyTakenBy = 'other-page';
+		await clock.advance(1000);
+		expect(auto.state).toBe('conflict');
+		expect(auto.conflictInfo).toEqual({ existingPageId: 'other-page' });
+		expect(store.drafts.get('p1')).toMatchObject({
+			source: '端末の日記',
+			conflict: true,
+			existingPageId: 'other-page'
+		});
+		// Reopening shows the same conflict instead of retrying silently.
+		const again = restore({ title: '', source: '', revision: 0 }, store.drafts.get('p1'));
+		expect(again.existingPageId).toBe('other-page');
+	});
+
+	it('saves a merged snapshot chosen by the user on top of the server revision', async () => {
+		const { clock, server, auto } = setup({ title: 't', source: 'a\nb', revision: 1 });
+		server.revision = 2;
+		server.page = { title: 't', source: 'a\nb\nserver' };
+		auto.edit({ title: 't', source: 'local\na\nb' });
+		await clock.advance(1000);
+		expect(auto.state).toBe('conflict');
+		await auto.resolveConflict(
+			{ use: { title: 't', source: 'local\na\nb\nserver' } },
+			{ ...server.page, revision: 2 }
+		);
+		await clock.advance(0);
+		expect(server.page.source).toBe('local\na\nb\nserver');
+		expect(server.calls.at(-1)?.base).toBe(2);
 		expect(auto.state).toBe('synced');
 	});
 });

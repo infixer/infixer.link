@@ -20,5 +20,11 @@
 		"vitest.perf.config.ts",
 		"playwright.config.ts"
 	],
-	"exclude": [".svelte-kit/output", ".svelte-kit/cloudflare", ".svelte-kit/cloudflare-tmp"]
+	"exclude": [
+		// Type-checked with tsconfig.service-worker.json (WebWorker lib).
+		"src/service-worker.ts",
+		".svelte-kit/output",
+		".svelte-kit/cloudflare",
+		".svelte-kit/cloudflare-tmp"
+	]
 }

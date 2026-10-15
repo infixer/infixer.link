@@ -11,6 +11,11 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			adapter: adapter(),
+			// Registered by the layout (lib/offline/sw.svelte.ts) so updates never reload by themselves.
+			serviceWorker: { register: false },
+			// Absolute asset and link URLs: the Service Worker serves the /offline page in place
+			// of any uncached URL, where relative ones would resolve under that URL (ADR 0015).
+			paths: { relative: false },
 			// Design §9.8: restrictive CSP; SvelteKit adds nonces for its inline scripts.
 			csp: {
 				mode: 'auto',
