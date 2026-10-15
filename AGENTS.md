@@ -22,6 +22,8 @@
 - 本番 RP ID / origin は `infixer.link` / `https://infixer.link`、staging は `staging.infixer.link`（ADR 0004）。Host header から生成しない。
 - フロントは SvelteKit + TypeScript + 生CSS（Tailwind・UI キット不可）。日付は `@infixer-link/time` 経由の Temporal。
 - bindings は `import { env } from 'cloudflare:workers'` で読む（SvelteKit 3 / adapter-cloudflare 8）。
+- `/api/*` は Hono（`src/lib/server/api/app.ts`、ADR 0006）。ページの load は HTTP を経由せず、サービス層（`src/lib/server/pages`・`auth`）を直接呼ぶ。
+- 複数行の原子的な確定は `tx_guard` パターン（ADR 0007）。テスト専用の認証バイパスは作らない。
 - D1 の更新成功判定は `RETURNING` で行い、`meta.changes` を使わない（ADR 0002）。
 - browser 用コードから `$lib/server`・secret・D1 を import しない。`tests/helpers` をアプリから import しない。
 
@@ -33,5 +35,8 @@ pnpm dev                          # vite dev（apps/web）
 pnpm --filter web test            # unit + workers 統合テスト
 pnpm --filter web test:e2e        # build + wrangler dev + Playwright
 pnpm --filter web check && pnpm --filter web lint
-pnpm --filter @infixer-link/time test
+pnpm --filter './packages/**' test
+pnpm --filter web db:migrate      # ローカル D1 にマイグレーション
+pnpm --filter web db:seed         # サンプルページ
+pnpm --filter web owner:grant     # セットアップコード発行（ops/runbooks/owner-auth.md）
 ```

@@ -15,6 +15,17 @@
 | 保存・検索・関連 API | p95 800 / 500 / 500ms | 未計測 | Phase 1〜5 |
 | Workers CPU time（実環境） | Free 10ms | **未計測** | staging deploy 後に Workers Observability で確認 |
 
+## Phase 1（2026-10-15）
+
+同条件（Apple M4 Pro 開発機、ローカル workerd）。
+
+| 対象 | 予算 | 実測 | 条件・備考 |
+|---|---|---|---|
+| 公開初回JS（`/`） | gzip ≤ 50KiB | **36.5KiB**（13 files） | 一覧表示を追加。WebAuthn（`navigator.credentials`）を含む chunk は公開ページで読み込まれないことをテストで確認 |
+| Worker bundle | Free 3MiB / Paid 10MiB（圧縮後） | 1543.7KiB / gzip **297.8KiB** | Hono・SimpleWebAuthn server・valibot・Temporal polyfill を含む |
+| 保存 API p95 | 800ms | 未計測 | 日本からの staging で 50 回以上計測する（staging 未作成） |
+| Workers CPU time | Free 10ms | 未計測 | 同上 |
+
 ### メモ
 
 - 公開初回 JS の大半（約 28KiB）は SvelteKit のクライアントルーター／hydration。公開ページを `csr = false` にすれば 0 にできるが、同一 URL 編集（設計 §9.1）でクライアント側の session 照会と遅延読み込みが必要なため、Phase 2 で判断する。
