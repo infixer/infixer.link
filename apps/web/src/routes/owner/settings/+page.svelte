@@ -9,6 +9,7 @@
 		signalUnknownPasskey,
 		withReauth
 	} from '#lib/owner/client.ts';
+	import type { IssuedTokenDto, TokenScope } from '@infixer-link/contracts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -69,6 +70,41 @@
 			await syncPasskeyManager();
 		}
 	}
+
+	// --- CLI tokens (ADR 0016) ---
+	let tokenLabel = $state('');
+	let tokenScopes = $state<Record<TokenScope, boolean>>({ read: true, write: true, backup: false });
+	let tokenDays = $state(90);
+	/** Shown once right after issuing; never stored. */
+	let issued = $state<IssuedTokenDto | null>(null);
+
+	function issueToken() {
+		const scopes = (Object.keys(tokenScopes) as TokenScope[]).filter((s) => tokenScopes[s]);
+		return run(async () => {
+			issued = await withReauth(csrf(), () =>
+				api<IssuedTokenDto>('/api/owner/v1/tokens', {
+					body: { label: tokenLabel.trim() || 'CLI', scopes, expiresInDays: tokenDays },
+					csrf: csrf()
+				})
+			);
+			tokenLabel = '';
+		}, 'トークンを発行しました。この画面を離れると二度と表示されません。');
+	}
+
+	function revokeToken(id: string, label: string) {
+		if (!confirm(`「${label}」を失効させますか？ このトークンを使う CLI は使えなくなります。`))
+			return;
+		return run(
+			() => api(`/api/owner/v1/tokens/${id}`, { method: 'DELETE', csrf: csrf() }),
+			'トークンを失効させました。'
+		);
+	}
+
+	const SCOPE_LABEL: Record<TokenScope, string> = {
+		read: '読む（get・search・today）',
+		write: '書く（append・put・create・import）',
+		backup: '持ち出す（export・backup）'
+	};
 
 	function revokeSession(id: string) {
 		return run(() => api(`/api/owner/v1/sessions/${id}`, { method: 'DELETE', csrf: csrf() }));
@@ -178,6 +214,80 @@
 </section>
 
 <section>
+	<h2>CLI トークン</h2>
+	<p class="hint">
+		コマンド <code>infixer</code> 用のトークンです。発行にはパスキーでの確認が必要です。トークンは発行した直後に一度だけ表示されます。
+	</p>
+	{#if issued}
+		<div class="issued" data-testid="issued-token">
+			<p>
+				「{issued.label}」のトークン（{issued.expiresAt.slice(0, 10)} まで有効）。<code
+					>infixer auth login</code
+				>
+				に貼り付けるか、環境変数 <code>INFIXER_TOKEN</code> に設定してください。
+			</p>
+			<input
+				type="text"
+				readonly
+				value={issued.token}
+				aria-label="発行したトークン"
+				onfocus={(e) => e.currentTarget.select()}
+			/>
+			<button type="button" onclick={() => (issued = null)}>閉じる（もう表示しません）</button>
+		</div>
+	{/if}
+	<ul data-testid="tokens">
+		{#each data.tokens as t (t.id)}
+			<li class:revoked={t.revoked}>
+				<span>
+					{t.label}
+					<br /><small
+						>{t.scopes.join('・')}・{t.revoked
+							? '失効済み'
+							: `${t.expiresAt.slice(0, 10)} まで`}・最終使用 {t.lastUsedAt?.slice(0, 10) ??
+							'なし'}</small
+					>
+				</span>
+				{#if !t.revoked}
+					<button type="button" disabled={busy} onclick={() => revokeToken(t.id, t.label)}
+						>失効</button
+					>
+				{/if}
+			</li>
+		{/each}
+	</ul>
+	<fieldset class="token-form">
+		<legend>新しいトークン</legend>
+		<input
+			type="text"
+			bind:value={tokenLabel}
+			maxlength="60"
+			placeholder="名前（例：ノート PC）"
+			aria-label="トークンの名前"
+		/>
+		{#each Object.entries(SCOPE_LABEL) as [scope, label] (scope)}
+			<label
+				><input type="checkbox" bind:checked={tokenScopes[scope as TokenScope]} /> {label}</label
+			>
+		{/each}
+		<label
+			>有効期間
+			<select bind:value={tokenDays}>
+				<option value={30}>30 日</option>
+				<option value={90}>90 日</option>
+				<option value={365}>1 年</option>
+			</select></label
+		>
+		<button
+			type="button"
+			onclick={issueToken}
+			disabled={busy || !Object.values(tokenScopes).some(Boolean)}
+			data-testid="issue-token">発行する</button
+		>
+	</fieldset>
+</section>
+
+<section>
 	{#if unsent}
 		<div class="unsent" data-testid="logout-choice">
 			<p>
@@ -201,6 +311,35 @@
 </section>
 
 <style>
+	.hint {
+		color: var(--color-muted);
+		font-size: 0.875rem;
+	}
+
+	.issued {
+		display: grid;
+		gap: var(--space-2);
+		margin-bottom: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		border: 1px solid var(--color-border);
+		border-radius: 0.5rem;
+	}
+
+	.issued input {
+		width: 100%;
+		font-family: ui-monospace, monospace;
+	}
+
+	.token-form {
+		display: grid;
+		gap: var(--space-2);
+		justify-items: start;
+	}
+
+	.revoked {
+		color: var(--color-muted);
+	}
+
 	.unsent {
 		display: grid;
 		gap: var(--space-2);
