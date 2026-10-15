@@ -6,7 +6,10 @@ declare global {
 		// interface Error {}
 		// interface Locals {}
 		// interface PageData {}
-		// interface PageState {}
+		interface PageState {
+			/** Open the editor right after navigation (e.g. a daily page was just created). */
+			edit?: boolean;
+		}
 	}
 }
 

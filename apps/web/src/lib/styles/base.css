@@ -49,3 +49,8 @@ body {
 a {
 	color: var(--color-link);
 }
+
+/* No inline style attributes: they are blocked by the CSP (design §9.8). */
+.app-root {
+	display: contents;
+}
