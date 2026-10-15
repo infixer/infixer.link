@@ -17,6 +17,7 @@
 		"test:e2e": "playwright test",
 		"gen": "wrangler types",
 		"test:workers": "vitest --run --config vitest.workers.config.ts",
+		"perf:data": "vitest --run --config vitest.perf.config.ts",
 		"perf:bundle": "playwright test --grep @perf --project=chromium",
 		"db:migrate": "wrangler d1 migrations apply DB --local",
 		"db:seed": "node scripts/seed-local.ts",
