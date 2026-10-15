@@ -7,12 +7,12 @@ interface __BaseEnv_Env {
 	BACKUP: R2Bucket;
 	DB: D1Database;
 	ASSETS: Fetcher;
-	SITE_TIME_ZONE: 'Asia/Tokyo';
-	APP_ENV: 'local';
+	SITE_TIME_ZONE: "Asia/Tokyo";
+	APP_ENV: "local";
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
-		mainModule: typeof import('./.svelte-kit/cloudflare/_worker');
+		mainModule: typeof import("./.svelte-kit/cloudflare/_worker");
 	}
 	interface Env extends __BaseEnv_Env {}
 }
@@ -21,31 +21,29 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<
-		Pick<Cloudflare.Env, 'SITE_TIME_ZONE' | 'APP_ENV'>
-	> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "SITE_TIME_ZONE" | "APP_ENV">> {}
 }
-declare module '*.txt' {
+declare module "*.txt" {
 	const value: string;
 	export default value;
 }
-declare module '*.html' {
+declare module "*.html" {
 	const value: string;
 	export default value;
 }
-declare module '*.sql' {
+declare module "*.sql" {
 	const value: string;
 	export default value;
 }
-declare module '*.bin' {
+declare module "*.bin" {
 	const value: ArrayBuffer;
 	export default value;
 }
-declare module '*.wasm' {
+declare module "*.wasm" {
 	const value: WebAssembly.Module;
 	export default value;
 }
-declare module '*.wasm?module' {
+declare module "*.wasm?module" {
 	const value: WebAssembly.Module;
 	export default value;
 }
