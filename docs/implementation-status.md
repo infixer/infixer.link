@@ -148,6 +148,7 @@ pnpm exec wrangler r2 bucket create infixer-link-backup-staging
 - **API**：`GET /api/public/v1/pages/{id}/related`、`GET /api/owner/v1/titles`、`POST /api/owner/v1/names/resolve`、`POST /api/owner/v1/link-previews`
 - **画面**：`/t/{name}`（未作成ページの案内と、本人による作成、そのページへのリンク一覧）
 - **その他**：公開ページに OGP のメタ情報を追加。`docs/compatibility.md` を新設。
+- **見た目とダークモード**（ADR 0011）：infixer.net に合わせた配色、暗いヘッダー、ライト / ダーク / システムの切り替え（ちらつきなし）、カーソルの視認性。CSP で CodeMirror の基本スタイルがブロックされていた問題を修正。
 
 ### テスト結果（ローカル、2026-10-15）
 
@@ -156,7 +157,7 @@ pnpm exec wrangler r2 bucket create infixer-link-backup-staging
 | `pnpm --filter './packages/**' test` | time 7 / content 30（記法の fixture、XSS につながる入力、病的な入力での速度） / contracts 5 passed |
 | `pnpm --filter web test:unit` | 21 passed |
 | `pnpm --filter web test:workers` | 69 passed（graph 6、previews 6 を追加） |
-| `pnpm --filter web test:e2e` | 54 passed / 28 skipped（links.e2e：描画・XSS・見たまま表示・リンク移動・未作成ページの作成・補完・箇条書きの継続・カード・関連ページ） |
+| `pnpm --filter web test:e2e` | 65 passed / 32 skipped（links.e2e：描画・XSS・見たまま表示・リンク移動・未作成ページの作成・補完・箇条書きの継続・カード・関連ページ。theme.e2e：OS の設定に従う・切り替えの保存・カーソルの位置と色・CSP エラーがないこと） |
 | check / lint | 0 errors |
 
 ### 未検証
