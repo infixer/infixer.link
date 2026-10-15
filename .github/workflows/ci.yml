@@ -24,9 +24,9 @@ jobs:
       - name: Type check
         run: pnpm -r check
       - name: Lint
-        run: pnpm --filter web lint
+        run: pnpm --filter web lint && pnpm --filter @infixer-link/cli lint
       - name: Unit tests
-        run: pnpm --filter './packages/**' test && pnpm --filter web test:unit
+        run: pnpm --filter './packages/**' test && pnpm --filter @infixer-link/cli test && pnpm --filter web test:unit
       - name: Workers integration tests
         run: pnpm --filter web test:workers
 

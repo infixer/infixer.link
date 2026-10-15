@@ -1,0 +1,28 @@
+{
+	"name": "@infixer-link/cli",
+	"private": true,
+	"version": "0.0.0",
+	"description": "infixer: command line client for infixer.link (Phase 7, ADR 0016)",
+	"type": "module",
+	"bin": {
+		"infixer": "./src/main.ts"
+	},
+	"engines": {
+		"node": ">=22.18"
+	},
+	"scripts": {
+		"check": "tsc --noEmit",
+		"lint": "prettier --check . && tsc --noEmit",
+		"test": "vitest --run",
+		"format": "prettier --write ."
+	},
+	"dependencies": {
+		"@infixer-link/contracts": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "^24.19.2",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.11",
+		"prettier": "^3.8.3"
+	}
+}
