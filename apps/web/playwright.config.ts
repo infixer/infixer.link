@@ -9,7 +9,7 @@ export default defineConfig({
 	reporter: process.env.CI ? 'github' : 'list',
 	use: { baseURL: 'http://localhost:4173' },
 	webServer: {
-		command: 'pnpm build && pnpm preview',
+		command: 'pnpm build && pnpm e2e:server',
 		port: 4173,
 		reuseExistingServer: !process.env.CI,
 		timeout: 180_000

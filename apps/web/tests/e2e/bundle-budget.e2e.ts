@@ -7,11 +7,15 @@ const PUBLIC_JS_BUDGET = 50 * 1024;
 
 test('@perf public first-load JS stays within budget', async ({ page }) => {
 	const scripts = new Map<string, number>();
+	const ownerOnly: string[] = [];
 	page.on('response', async (response) => {
 		const url = response.url();
 		if (response.request().resourceType() !== 'script' && !url.endsWith('.js')) return;
 		try {
-			scripts.set(url, gzipSync(await response.body()).length);
+			const body = await response.body();
+			scripts.set(url, gzipSync(body).length);
+			// Passkey (WebAuthn) code must only load on owner screens (design §9.1, §9.3).
+			if (body.toString('utf8').includes('navigator.credentials')) ownerOnly.push(url);
 		} catch {
 			// body unavailable (e.g. redirect); ignore
 		}
@@ -37,4 +41,5 @@ test('@perf public first-load JS stays within budget', async ({ page }) => {
 
 	expect(scripts.size).toBeGreaterThan(0);
 	expect(total).toBeLessThanOrEqual(PUBLIC_JS_BUDGET);
+	expect(ownerOnly).toEqual([]);
 });
