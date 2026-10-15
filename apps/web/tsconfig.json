@@ -1,0 +1,17 @@
+{
+	"extends": "$app/tsconfig",
+	"compilerOptions": {
+		"strict": true,
+		// worker-configuration.d.ts imports the built worker (.svelte-kit/cloudflare/_worker.js)
+		// for `mainModule`; do not type-check generated JS output.
+		"checkJs": false,
+		"types": [
+			"$app/types",
+			"node",
+			"./worker-configuration.d.ts",
+			"@cloudflare/vitest-plugin/types"
+		]
+	},
+	"include": ["src", "tests", "vite.config.ts", "vitest.workers.config.ts", "playwright.config.ts"],
+	"exclude": [".svelte-kit/output", ".svelte-kit/cloudflare", ".svelte-kit/cloudflare-tmp"]
+}

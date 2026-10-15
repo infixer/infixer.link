@@ -1,0 +1,33 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "garden",
+	"compatibility_date": "2026-10-15",
+	"compatibility_flags": ["nodejs_als"],
+	"main": ".svelte-kit/cloudflare/_worker.js",
+	"assets": {
+		"binding": "ASSETS",
+		"directory": ".svelte-kit/cloudflare"
+	},
+	// Design §9.8: do not expose workers.dev / preview hosts. WebAuthn only on fixed origins.
+	"workers_dev": false,
+	"preview_urls": false,
+	"vars": {
+		"SITE_TIME_ZONE": "Asia/Tokyo",
+		"APP_ENV": "local"
+	},
+	// Local-only placeholders. Real resource IDs are created per environment
+	// (staging/production) with explicit user approval; never guess them.
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "garden-local",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+	"r2_buckets": [
+		{ "binding": "MEDIA", "bucket_name": "garden-media-local" },
+		{ "binding": "PENDING", "bucket_name": "garden-pending-local" },
+		{ "binding": "BACKUP", "bucket_name": "garden-backup-local" }
+	]
+}
