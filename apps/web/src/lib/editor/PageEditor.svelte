@@ -179,7 +179,8 @@
 					EditorView.lineWrapping,
 					live.extension,
 					EditorView.domEventHandlers({
-						paste: (event) => takeImages(event.clipboardData?.files, event),
+						paste: (event, v) =>
+							takeImages(event.clipboardData?.files, event) || pasteUrlAsCard(v, event),
 						drop: (event, v) => {
 							const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
 							if (pos !== null) v.dispatch({ selection: EditorSelection.cursor(pos) });
@@ -342,6 +343,33 @@
 		if (images.length === 0) return false;
 		event.preventDefault();
 		insertImages(images);
+		return true;
+	}
+
+	/**
+	 * A pasted URL on its own becomes a link card (ADR 0010): it gets its own line and the
+	 * cursor moves to the next line, so the card renders right away. Inside link syntax
+	 * (`[label](` or `[`) the URL is pasted as plain text.
+	 */
+	function pasteUrlAsCard(v: EditorView, event: ClipboardEvent): boolean {
+		const text = event.clipboardData?.getData('text/plain').trim() ?? '';
+		if (!/^https?:\/\/\S+$/i.test(text) || text.length > 2048) return false;
+		const { state } = v;
+		const range = state.selection.main;
+		const line = state.doc.lineAt(range.from);
+		const before = line.text.slice(0, range.from - line.from);
+		if (/[[(]\s*$/.test(before) || /\[[^\]]*$/.test(before)) return false;
+		event.preventDefault();
+		const lead = before.trim() ? '\n' : '';
+		const indent = before.trim() ? (/^[ \t\u3000]*/.exec(line.text)?.[0] ?? '') : '';
+		// Always end with a line break so the cursor leaves the URL line and the card shows.
+		const insert = `${lead}${indent}${text}\n`;
+		v.dispatch({
+			changes: { from: range.from, to: range.to, insert },
+			selection: EditorSelection.cursor(range.from + insert.length),
+			scrollIntoView: true,
+			userEvent: 'input.paste'
+		});
 		return true;
 	}
 
