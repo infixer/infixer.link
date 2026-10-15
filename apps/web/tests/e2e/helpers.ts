@@ -1,7 +1,14 @@
 /** Shared E2E helpers. The owner is registered once by `owner.setup.ts`. */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import type { APIRequestContext, Browser, BrowserContext, Page } from '@playwright/test';
+import { deflateSync, crc32 } from 'node:zlib';
+import {
+	expect,
+	type APIRequestContext,
+	type Browser,
+	type BrowserContext,
+	type Page
+} from '@playwright/test';
 
 export const BASE = 'http://localhost:4173';
 export const AUTH_DIR = 'test-results/.auth';
@@ -86,4 +93,43 @@ export async function anonymousPage(
 ): Promise<{ context: BrowserContext; page: Page }> {
 	const context = await browser.newContext();
 	return { context, page: await context.newPage() };
+}
+
+/** A valid solid-color RGB PNG of the given size. */
+export function solidPng(width: number, height: number, rgb: [number, number, number]): Buffer {
+	const chunk = (type: string, data: Buffer) => {
+		const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+		const out = Buffer.alloc(body.length + 8);
+		out.writeUInt32BE(data.length, 0);
+		body.copy(out, 4);
+		out.writeUInt32BE(crc32(body), body.length + 4);
+		return out;
+	};
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(width, 0);
+	header.writeUInt32BE(height, 4);
+	header[8] = 8; // bit depth
+	header[9] = 2; // RGB
+	const row = Buffer.alloc(1 + width * 3);
+	for (let x = 0; x < width; x++) row.set(rgb, 1 + x * 3);
+	const raw = Buffer.concat(Array.from({ length: height }, () => row));
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		chunk('IHDR', header),
+		chunk('IDAT', deflateSync(raw)),
+		chunk('IEND', Buffer.alloc(0))
+	]);
+}
+
+export async function uploadImage(request: APIRequestContext, png: Buffer): Promise<string> {
+	const id = crypto.randomUUID();
+	const headers = { origin: BASE, 'x-csrf-token': await csrfToken(request) };
+	const put = await request.put(`/api/owner/v1/assets/${id}`, {
+		data: png,
+		headers: { ...headers, 'content-type': 'image/png' }
+	});
+	expect(put.status()).toBe(200);
+	const done = await request.post(`/api/owner/v1/assets/${id}/complete`, { headers });
+	expect(done.status()).toBe(200);
+	return id;
 }

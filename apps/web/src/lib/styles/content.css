@@ -255,11 +255,18 @@
 	white-space: normal;
 }
 .img {
+	/*
+	 * The width / height attributes size the box before the image arrives (no layout shift):
+	 * width comes from the attribute (capped at 100%), height from its aspect ratio. A
+	 * `width: auto` here would drop that reservation (lab CLS 0.22, Phase 5). Tall images
+	 * capped by max-height keep their ratio inside the box via object-fit.
+	 */
 	display: block;
 	max-width: 100%;
 	max-height: 70vh;
-	width: auto;
 	height: auto;
+	object-fit: contain;
+	object-position: left top;
 	border-radius: 0.375rem;
 }
 .img-note {
@@ -291,4 +298,74 @@
 	object-fit: cover;
 	border-radius: 0.375rem;
 	background: var(--color-border);
+}
+
+/* YouTube (ADR 0014): a 16:9 box reserved before anything loads (no layout shift). */
+.video {
+	display: block;
+	position: relative;
+	width: 100%;
+	max-width: 40rem;
+	aspect-ratio: 16 / 9;
+	margin: 0.4em 0;
+	overflow: hidden;
+	border-radius: 0.5rem;
+	background: oklch(20% 0 0);
+	white-space: normal;
+}
+.video-facade,
+.video-frame {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	border: 0;
+}
+.video-facade {
+	display: block;
+	color: #fff;
+	text-decoration: none;
+}
+.video-poster {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+.video-title {
+	position: absolute;
+	inset: 0 0 auto;
+	padding: 0.6em 0.9em 1.6em;
+	background: linear-gradient(oklch(0% 0 0 / 70%), transparent);
+	font-weight: 700;
+	line-height: 1.4;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.video-play {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 4.25rem;
+	height: 3rem;
+	transform: translate(-50%, -50%);
+	border-radius: 0.875rem;
+	background: oklch(0% 0 0 / 70%);
+	transition: background 0.2s;
+}
+.video-play::after {
+	content: '';
+	position: absolute;
+	top: 50%;
+	left: 54%;
+	transform: translate(-50%, -50%);
+	border-style: solid;
+	border-width: 0.6rem 0 0.6rem 1.05rem;
+	border-color: transparent transparent transparent #fff;
+}
+.video-facade:hover .video-play,
+.video-facade:focus-visible .video-play {
+	background: oklch(57.7% 0.245 27.325);
 }

@@ -7,6 +7,7 @@
 	import type { AssetDto, LinkPreviewDto, PageRefDto } from '@infixer-link/contracts';
 	import { lineClass } from './classes.ts';
 	import Inlines from './Inlines.svelte';
+	import Video from './Video.svelte';
 
 	interface Props {
 		source: string;
@@ -17,6 +18,7 @@
 
 	let { source, names, previews, assets }: Props = $props();
 	let parsed = $derived(parse(source));
+	let eagerAsset = $derived(parsed.assets.find((id) => assets[id]?.url));
 	const NBSP = '\u00a0'; // keeps empty lines one line tall
 </script>
 
@@ -29,7 +31,10 @@
 					line.contentFrom
 				) || NBSP}{:else if line.kind === 'code-open'}<span class="code-label"
 					>{line.lang ?? ''}</span
-				>{NBSP}{:else if card?.ok && card.title}<a
+				>{NBSP}{:else if line.video}<Video
+					video={line.video}
+					preview={card}
+				/>{:else if card?.ok && card.title}<a
 					class="card"
 					class:has-image={!!card.image}
 					href={line.url}
@@ -48,7 +53,7 @@
 							loading="lazy"
 							decoding="async"
 						/>{/if}</a
-				>{:else}<Inlines nodes={line.inlines} {names} {assets} />{/if}
+				>{:else}<Inlines nodes={line.inlines} {names} {assets} {eagerAsset} />{/if}
 		</div>
 	{/each}
 </div>

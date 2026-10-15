@@ -17,6 +17,8 @@
  *   [asset:UUID]  [$ math]  \escape
  */
 
+import { youtubeVideo, type Video } from './youtube.ts';
+
 export type Inline =
 	| { type: 'text'; from: number; to: number; text: string }
 	| { type: 'code'; from: number; to: number; text: string }
@@ -70,6 +72,8 @@ export interface Line {
 	ordered?: number;
 	/** For card lines. */
 	url?: string;
+	/** For card lines whose URL is a video (rendered as an embedded player). */
+	video?: Video;
 	/** For code-open lines: language or Cosense file name. */
 	lang?: string;
 	inlines: Inline[];
@@ -83,9 +87,15 @@ export interface Parsed {
 	assets: string[];
 	/** URLs rendered as link cards, unique. */
 	cards: string[];
+	/**
+	 * Candidates for the page's thumbnail in document order (up to 5): `asset:{id}` for
+	 * images and `url:{url}` for cards / videos. The first one with an image is used.
+	 */
+	thumbnails: string[];
 }
 
 const MAX_INLINE_DEPTH = 4;
+const MAX_THUMBNAILS = 5;
 const URL_RE = /^https?:\/\/[^\s<>"'`[\]]+/i;
 const SAFE_SCHEME = /^(https?:\/\/|mailto:)/i;
 const ASSET_RE = /^asset:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
@@ -330,6 +340,7 @@ export function parse(source: string): Parsed {
 	const links = new Set<string>();
 	const assets = new Set<string>();
 	const cards = new Set<string>();
+	const thumbnails: string[] = [];
 
 	let fence: { indent: number; marker: string } | null = null;
 	let cosenseCode: { indent: number } | null = null;
@@ -411,13 +422,31 @@ export function parse(source: string): Parsed {
 			// Top-level and indented URL-only lines render as cards; list items keep their bullet.
 			if (line.kind === 'text') line.kind = 'card';
 			line.url = only.url;
+			const video = youtubeVideo(only.url);
+			if (video) line.video = video;
 			cards.add(only.url);
+			if (thumbnails.length < MAX_THUMBNAILS) thumbnails.push(`url:${only.url}`);
+		} else if (thumbnails.length < MAX_THUMBNAILS) {
+			collectAssets(line.inlines, thumbnails);
 		}
 		collect(line.inlines, links, assets);
 		lines.push(line);
 	});
 
-	return { lines, links: [...links], assets: [...assets], cards: [...cards] };
+	return {
+		lines,
+		links: [...links],
+		assets: [...assets],
+		cards: [...cards],
+		thumbnails: [...new Set(thumbnails)].slice(0, MAX_THUMBNAILS)
+	};
+}
+
+function collectAssets(inlines: Inline[], out: string[]) {
+	for (const node of inlines) {
+		if (node.type === 'asset') out.push(`asset:${node.id}`);
+		else if ('children' in node) collectAssets(node.children, out);
+	}
 }
 
 function collect(inlines: Inline[], links: Set<string>, assets: Set<string>) {

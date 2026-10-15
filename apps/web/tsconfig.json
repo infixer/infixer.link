@@ -12,6 +12,13 @@
 			"@cloudflare/vitest-plugin/types"
 		]
 	},
-	"include": ["src", "tests", "vite.config.ts", "vitest.workers.config.ts", "playwright.config.ts"],
+	"include": [
+		"src",
+		"tests",
+		"vite.config.ts",
+		"vitest.workers.config.ts",
+		"vitest.perf.config.ts",
+		"playwright.config.ts"
+	],
 	"exclude": [".svelte-kit/output", ".svelte-kit/cloudflare", ".svelte-kit/cloudflare-tmp"]
 }

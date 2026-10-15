@@ -25,7 +25,15 @@ import {
 	type CompletionContext,
 	type CompletionResult
 } from '@codemirror/autocomplete';
-import { parse, type Inline, type Line, type Parsed } from '@infixer-link/content';
+import {
+	parse,
+	youtubeEmbedUrl,
+	youtubeWatchUrl,
+	type Inline,
+	type Line,
+	type Parsed,
+	type Video
+} from '@infixer-link/content';
 import type {
 	AssetDto,
 	LinkPreviewDto,
@@ -125,6 +133,69 @@ class CardWidget extends WidgetType {
 	}
 	ignoreEvent() {
 		return false;
+	}
+}
+
+/** Same DOM as Video.svelte: thumbnail + play button; the player loads on press. */
+class VideoWidget extends WidgetType {
+	constructor(
+		readonly video: Video,
+		readonly preview: LinkPreviewDto | undefined
+	) {
+		super();
+	}
+	eq(other: VideoWidget) {
+		return (
+			other.video.id === this.video.id &&
+			other.video.start === this.video.start &&
+			other.preview?.title === this.preview?.title &&
+			other.preview?.image?.url === this.preview?.image?.url
+		);
+	}
+	toDOM() {
+		const wrap = document.createElement('span');
+		wrap.className = 'video';
+		wrap.dataset.testid = 'video';
+		const title = this.preview?.title ?? 'YouTube の動画';
+		const a = document.createElement('a');
+		a.className = 'video-facade';
+		a.href = youtubeWatchUrl(this.video);
+		a.target = '_blank';
+		a.rel = 'noopener nofollow ugc';
+		a.setAttribute('aria-label', `${title}を再生`);
+		if (this.preview?.image) {
+			const { url, width, height } = this.preview.image;
+			a.appendChild(imageElement(url, width, height, 'video-poster'));
+		}
+		const play = document.createElement('span');
+		play.className = 'video-play';
+		play.setAttribute('aria-hidden', 'true');
+		a.appendChild(play);
+		if (this.preview?.title) {
+			const label = document.createElement('span');
+			label.className = 'video-title';
+			label.textContent = this.preview.title;
+			a.appendChild(label);
+		}
+		a.addEventListener('click', (event) => {
+			if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+				return;
+			event.preventDefault();
+			const frame = document.createElement('iframe');
+			frame.className = 'video-frame';
+			frame.src = youtubeEmbedUrl(this.video);
+			frame.title = title;
+			frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+			frame.allowFullscreen = true;
+			frame.referrerPolicy = 'strict-origin-when-cross-origin';
+			a.replaceWith(frame);
+		});
+		wrap.appendChild(a);
+		return wrap;
+	}
+	/** The player handles its own clicks; the editor does not move the cursor into it. */
+	ignoreEvent() {
+		return true;
 	}
 }
 
@@ -312,6 +383,15 @@ function lineDecorations(
 		out.push(muted.range(from, from + line.contentFrom));
 
 	const preview = line.url ? data.previews[line.url] : undefined;
+	if (!active && line.video) {
+		out.push(
+			Decoration.replace({ widget: new VideoWidget(line.video, preview) }).range(
+				from + line.contentFrom,
+				end
+			)
+		);
+		return;
+	}
 	if (!active && preview?.ok && preview.title) {
 		out.push(
 			Decoration.replace({ widget: new CardWidget(line.url!, preview) }).range(

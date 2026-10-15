@@ -9,7 +9,8 @@
 | 2 日記を毎日書ける最小版 | **実装完了（ローカル）。実機 IME 未検証** | `phase-2`（`phase-1` の上） |
 | 3 Cosense 風のリンクと操作感 | **実装完了（ローカル）。実機 IME と補完の干渉は未検証** | `phase-3`（`phase-2` の上） |
 | 4 画像アップロードと高速配信 | **実装完了（ローカル）。R2 のカスタムドメインと実機の写真選択は未検証** | `phase-4`（`phase-3` の上） |
-| 2〜10 | 未着手 | — |
+| 5 検索・一覧・公開表示の性能 | **実装完了（ローカル）。本番 D1 での時間と実機の IME は未検証。一覧のカードと YouTube の埋め込みを追加** | `phase-5`（`phase-4` の上） |
+| 6〜10 | 未着手 | — |
 
 ## Phase 0（2026-10-15）
 
@@ -202,7 +203,65 @@ pnpm exec wrangler r2 bucket create infixer-link-backup-staging
 - 実際の外部サイトでのカード画像の取り込み
 - pending と、どこからも参照されない画像の削除（GC）は Phase 8
 
-## 次：Phase 5 への引き継ぎ
+## Phase 5（2026-10-16）
+
+### 成果物
+
+- **日本語検索**（ADR 0013、`src/lib/server/pages/search.ts`）
+  - 3 文字以上の語は FTS5 trigram、1〜2 文字は LIKE（エスケープあり）。語は AND。FTS の検索構文は使えない（すべてフレーズにする）。
+  - 並び順：名前（別名を含む）の完全一致 → 前方一致 → タイトルにすべての語 → 本文だけ。同じ順位は更新の新しい順。
+  - 抜粋とハイライト（`{ text, hit }[]`。`<mark>` で描く）。100 文字・5 語まで、offset は 200 まで。
+- **API**：`GET /api/public/v1/search?q&limit&offset`（公開、`no-cache`）。DTO は `@infixer-link/contracts` の `SearchDto`。
+- **画面**：`/search`（ヘッダーに「検索」）
+  - JavaScript なしでもフォームで検索できる（SSR）。
+  - JavaScript があれば入力しながら検索する：200ms の debounce、古い要求の中止、古い応答で上書きしない（`src/lib/search/live.ts`）、IME の変換中は検索しない、URL を `?q=` に合わせる。
+  - 矢印キーで結果に移動し、Enter で開く。Escape で入力欄に戻る。`noindex`。
+- **マイグレーション 0005**：検索索引を安定した rowid で入れ替える。保存 1 回の rows read が 10,006 → 8（10,000 ページ）。既存データの移行も確認した。
+- **公開表示**
+  - 画像の CLS を修正（Phase 4 の CSS が縦横の予約を打ち消していた。0.224 → 0.000）。
+  - ページで最初の画像は `eager` + `fetchpriority=high`、他は `lazy`。
+  - 公開 HTML には ETag を付けない（CSP の nonce が応答ごとに変わるため。ADR 0013）。一覧はカーソル方式のまま（ページあたり 31 行しか読まない）。
+- **計測**：`pnpm --filter web perf:data`（合成データ 2,000 / 10,000 ページで、検索・一覧・関連ページ・ページの load・保存のコストを計測）。`pnpm --filter web db:seed --synthetic 2000` でローカルにも同じデータを入れられる。結果は `docs/performance.md`。
+
+### テスト結果（ローカル、2026-10-16）
+
+| コマンド | 結果 |
+|---|---|
+| `pnpm --filter './packages/**' test` | time 7 / content 30 / contracts 5 passed |
+| `pnpm --filter web test:unit` | 35 passed（入力中の検索 4 件を追加：debounce、古い応答の破棄、中止した要求のエラーを出さない、取り消し） |
+| `pnpm --filter web test:workers` | 92 passed（search 15 件を追加：1・2・3 文字、AND と混在、名前・別名の順位、英数字の大小、長文の抜粋、更新・削除・復元の反映、FTS 構文と LIKE のワイルドカードを文字として扱う、ページングの重複・欠落なし、パラメータの上限） |
+| `pnpm --filter web perf:data` | 2 passed（2,000 / 10,000 ページ。数値は `docs/performance.md`） |
+| `pnpm --filter web test:e2e` | 96 passed / 54 skipped（search.e2e：JavaScript なし、入力中の検索、古い応答で上書きしない、キーボード操作、IME の変換中は検索しない（Chromium の CDP）、スマホ幅のヘッダー。vitals.e2e：画像ページの CLS。bundle-budget に `/search` を追加）。3 回実行し 2 回は全件 pass。1 回は vitals.e2e のページ作成がローカル D1 の内部エラー（`Failed to get session commit token: internal error`）で 500 になった。アプリのエラーではなく、再実行では再現しなかった |
+| check / lint | 0 errors |
+| テストの有効性 | 古い応答の破棄（中止と順番の確認）と IME の確認を一時的に外すと、E2E 2 件と unit 2 件が失敗することを確かめ、元に戻した |
+
+### 未検証
+
+- **本番 D1 での検索・関連ページ・保存の時間と rows read**（staging 未作成）。ローカルの値は参考値。
+- 公開ページの cold / warm の比較、モバイル回線相当での LCP、実機での INP。
+- **実機の日本語 IME での入力中の検索**（CDP のエミュレーションでは確認済み）。iPhone で検索欄にフォーカスしたときの表示。
+- 1〜2 文字の検索と関連ページの rows read が、公開での閲覧数に比例して増えること（ADR 0013 の「残るリスク」。Phase 8 の監視とあわせて判断する）。
+
+### 追加：一覧のカード表示と YouTube の埋め込み（2026-10-16、ユーザーの依頼。ADR 0014）
+
+- **一覧**：Cosense のような正方形のカードのグリッド（スマホ 2 列・PC 4 列）。ページで最初の画像（アップロード画像、リンクカードの画像、YouTube のサムネイル）を出し、なければ最初の数行を出す。
+- **保存**：本文から画像の候補を計算して `pages.thumbs_json` に保存する（マイグレーション 0006）。画像は一覧を読むときに解決する。既存のローカルデータは `pnpm --filter web db:backfill-thumbnails`。
+- **YouTube**：URL だけの行は 16:9 の枠にサムネイルと再生ボタンを出し、押すと `youtube-nocookie.com` のプレイヤーに置き換える（公開ページとエディタ）。タイトルは oEmbed、サムネイルは i.ytimg.com から R2 に取り込む。CSP に `frame-src https://www.youtube-nocookie.com` を追加した。
+- **テスト**
+  - packages：content 37 passed（YouTube の URL の判定・開始位置・偽物の拒否、サムネイルの候補、本文の先頭の文字）
+  - `test:workers`：100 passed（cards 8 件を追加：文字だけのカード、最初の画像、画像のない候補を飛ばす、カードの画像、編集・復元での更新、oEmbed とサムネイル、oEmbed が失敗したとき、動画は HTML を取得しない）
+  - `test:e2e`：106 passed / 56 skipped（cards.e2e：カードの画像と文字、スマホで 2 列・正方形・横スクロールなし、押すまでプレイヤーを読み込まない、CSP エラーなし、JavaScript なしではリンク、エディタでの再生）。`frame-src` を外すと再生のテストが失敗することを確かめ、元に戻した
+  - 全体の E2E を 3 回実行し、1 回はローカル D1 の内部エラー（上記と同じ `Failed to get session commit token`）で 1 件が失敗した。miniflare の D1 エミュレーターが内部のストレージから bookmark を取れなかったときのエラーで、SQL の後に起きている。アプリのエラーではない
+  - check / lint は 0 errors
+- **未検証**：実際の YouTube（oEmbed・サムネイル・プレイヤー）への接続、iPhone での再生と全画面表示。
+
+## 次：Phase 6 への引き継ぎ
+
+- Service Worker・outbox・競合の 3 者比較（設計 §17 Phase 6）。
+- 検索結果はオフラインでは使えない（API のみ）。オフラインで何を出すかは Phase 6 で決める。
+- 画像の CSS は `width` / `height` 属性で領域を予約している。オフラインの未送信画像（属性なし）でも崩れないか確認する。
+
+## 旧：Phase 5 への引き継ぎ（Phase 4 時点）
 
 - 日本語の検索（FTS5 trigram と、1〜2 文字の LIKE による補完）、2,000 / 10,000 ページの合成データでの計測。
 - 一覧のカーソルページングはもうある。ETag も公開 API にはあるので、HTML の扱いを決める。

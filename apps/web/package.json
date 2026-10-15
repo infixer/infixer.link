@@ -17,9 +17,11 @@
 		"test:e2e": "playwright test",
 		"gen": "wrangler types",
 		"test:workers": "vitest --run --config vitest.workers.config.ts",
+		"perf:data": "vitest --run --config vitest.perf.config.ts",
 		"perf:bundle": "playwright test --grep @perf --project=chromium",
 		"db:migrate": "wrangler d1 migrations apply DB --local",
 		"db:seed": "node scripts/seed-local.ts",
+		"db:backfill-thumbnails": "node scripts/backfill-thumbnails.ts",
 		"owner:grant": "node scripts/owner-grant.ts",
 		"e2e:server": "rm -rf .wrangler/e2e && wrangler d1 migrations apply DB --local --persist-to .wrangler/e2e && wrangler dev --port 4173 --persist-to .wrangler/e2e"
 	},
