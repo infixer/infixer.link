@@ -255,11 +255,18 @@
 	white-space: normal;
 }
 .img {
+	/*
+	 * The width / height attributes size the box before the image arrives (no layout shift):
+	 * width comes from the attribute (capped at 100%), height from its aspect ratio. A
+	 * `width: auto` here would drop that reservation (lab CLS 0.22, Phase 5). Tall images
+	 * capped by max-height keep their ratio inside the box via object-fit.
+	 */
 	display: block;
 	max-width: 100%;
 	max-height: 70vh;
-	width: auto;
 	height: auto;
+	object-fit: contain;
+	object-position: left top;
 	border-radius: 0.375rem;
 }
 .img-note {

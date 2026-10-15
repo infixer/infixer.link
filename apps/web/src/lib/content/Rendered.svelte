@@ -17,6 +17,7 @@
 
 	let { source, names, previews, assets }: Props = $props();
 	let parsed = $derived(parse(source));
+	let eagerAsset = $derived(parsed.assets.find((id) => assets[id]?.url));
 	const NBSP = '\u00a0'; // keeps empty lines one line tall
 </script>
 
@@ -48,7 +49,7 @@
 							loading="lazy"
 							decoding="async"
 						/>{/if}</a
-				>{:else}<Inlines nodes={line.inlines} {names} {assets} />{/if}
+				>{:else}<Inlines nodes={line.inlines} {names} {assets} {eagerAsset} />{/if}
 		</div>
 	{/each}
 </div>

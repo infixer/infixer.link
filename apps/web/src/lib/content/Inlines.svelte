@@ -7,11 +7,14 @@
 	let {
 		nodes,
 		names,
-		assets = {}
+		assets = {},
+		eagerAsset
 	}: {
 		nodes: Inline[];
 		names: Record<string, PageRefDto>;
 		assets?: Record<string, AssetDto>;
+		/** The page's first image (likely the LCP element): loaded eagerly, high priority. */
+		eagerAsset?: string;
 	} = $props();
 </script>
 
@@ -40,15 +43,21 @@
 					width={asset.width}
 					height={asset.height}
 					alt=""
-					loading="lazy"
+					loading={node.id === eagerAsset ? 'eager' : 'lazy'}
+					fetchpriority={node.id === eagerAsset ? 'high' : 'auto'}
 					decoding="async"
 				/></span
 			>{:else}<span class="asset">[画像]</span>{/if}{:else if node.type === 'math'}<code
 			class="math">{node.text}</code
 		>{:else if node.type === 'strong'}<strong
 			class:w2={node.weight === 2}
-			class:w3={(node.weight ?? 0) >= 3}><Self nodes={node.children} {names} {assets} /></strong
-		>{:else if node.type === 'em'}<em><Self nodes={node.children} {names} {assets} /></em
-		>{:else if node.type === 'strike'}<s><Self nodes={node.children} {names} {assets} /></s
-		>{:else if node.type === 'underline'}<u><Self nodes={node.children} {names} {assets} /></u>{/if}
+			class:w3={(node.weight ?? 0) >= 3}
+			><Self nodes={node.children} {names} {assets} {eagerAsset} /></strong
+		>{:else if node.type === 'em'}<em
+			><Self nodes={node.children} {names} {assets} {eagerAsset} /></em
+		>{:else if node.type === 'strike'}<s
+			><Self nodes={node.children} {names} {assets} {eagerAsset} /></s
+		>{:else if node.type === 'underline'}<u
+			><Self nodes={node.children} {names} {assets} {eagerAsset} /></u
+		>{/if}
 {/each}
