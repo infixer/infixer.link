@@ -26,6 +26,18 @@
 | 保存 API p95 | 800ms | 未計測 | 日本からの staging で 50 回以上計測する（staging 未作成） |
 | Workers CPU time | Free 10ms | 未計測 | 同上 |
 
+## Phase 2（2026-10-15）
+
+同じ条件（Apple M4 Pro 開発機、ローカル workerd、Chromium、CPU throttle なし）。
+
+| 対象 | 予算 | 実測 | 条件・備考 |
+|---|---|---|---|
+| 公開初回JS（`/`） | gzip ≤ 50KiB | **39.0KiB**（16 files） | session の問い合わせと「今日」リンクを追加。CodeMirror と WebAuthn は含まない |
+| 編集時JS（エディタを開いたページの合計） | gzip ≤ 250KiB | **131.3KiB** | CodeMirror（state / view / commands）、idb、エディタ UI を含む |
+| 入力から描画（10,499 文字のページ） | p95 ≤ 50ms | **p50 1.4ms / p95 14.8ms**（138 入力） | `beforeinput` から次の `requestAnimationFrame` まで。Playwright の `keyboard.type` は IME の composition を通らない。実機とスロットリングありは未計測 |
+| Worker bundle | Free 3MiB / Paid 10MiB（圧縮後） | 1552.6KiB / gzip **299.4KiB** | |
+| 保存 API p95 / LCP / CPU time | — | 未計測 | staging 作成後に計測 |
+
 ### メモ
 
 - 公開初回 JS の大半（約 28KiB）は SvelteKit のクライアントルーター／hydration。公開ページを `csr = false` にすれば 0 にできるが、同一 URL 編集（設計 §9.1）でクライアント側の session 照会と遅延読み込みが必要なため、Phase 2 で判断する。
