@@ -1,5 +1,6 @@
 <script lang="ts">
 	import '#lib/styles/base.css';
+	import '#lib/styles/content.css';
 	import { resolve } from '$app/paths';
 	import favicon from '#lib/assets/favicon.svg';
 	import NewPageButton from '#lib/owner/NewPageButton.svelte';
