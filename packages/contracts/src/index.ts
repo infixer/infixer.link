@@ -10,7 +10,13 @@ export const LIMITS = {
 	linksPerPage: 1000,
 	assetsPerPage: 200,
 	listDefault: 30,
-	listMax: 100
+	listMax: 100,
+	/** Search (design §11.1): query length in code points, terms, page size and depth. */
+	searchQueryCodePoints: 100,
+	searchTerms: 5,
+	searchDefault: 20,
+	searchMax: 50,
+	searchMaxOffset: 200
 } as const;
 
 export const FORMAT = 'link-text-v1';
@@ -287,6 +293,29 @@ export interface TitleSuggestionDto {
 	title: string;
 	pageId: string;
 	alias: boolean;
+}
+
+/** Why a page matched: its current title, an earlier name (alias), or only the body. */
+export type SearchMatch = 'title' | 'alias' | 'body';
+
+export interface SearchHitDto {
+	id: string;
+	title: string;
+	dailyDate: string | null;
+	updatedAt: string;
+	match: SearchMatch;
+	/** Matched name when `match` is 'alias'. */
+	alias: string | null;
+	/** Body excerpt around the first match, split into plain and highlighted parts. */
+	excerpt: { text: string; hit: boolean }[];
+}
+
+export interface SearchDto {
+	/** The normalized query that was executed ('' when nothing was searched). */
+	query: string;
+	hits: SearchHitDto[];
+	/** Offset for the next page, or null when there are no more (or the depth limit was reached). */
+	nextOffset: number | null;
 }
 
 export { v };

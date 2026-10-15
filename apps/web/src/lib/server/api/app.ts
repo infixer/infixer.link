@@ -33,6 +33,7 @@ import { ApiError, errorResponse, toIso } from '../http';
 import * as auth from '../auth/service';
 import * as pages from '../pages/service';
 import * as graph from '../pages/graph';
+import { searchPages } from '../pages/search';
 import { refreshPreviews, type Fetcher } from '../previews';
 import { completeAsset, readCapped, storePending } from '../assets';
 import { IMAGE_LIMITS } from '../images';
@@ -256,6 +257,15 @@ export function createApi(deps: ApiDeps) {
 		.get('/pages/:id/related', pageId, async (c) => {
 			c.header('cache-control', 'no-cache');
 			return c.json(await graph.relatedPages(db, c.req.param('id')));
+		})
+		.get('/search', async (c) => {
+			const int = (name: string) => Number.parseInt(c.req.query(name) ?? '', 10) || undefined;
+			const result = await searchPages(db, c.req.query('q') ?? '', {
+				limit: int('limit'),
+				offset: int('offset')
+			});
+			c.header('cache-control', 'no-cache');
+			return c.json(result);
 		})
 		.get('/resolve', async (c) => {
 			const title = c.req.query('title') ?? '';

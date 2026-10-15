@@ -16,6 +16,7 @@ const TABLES = [
 	'link_previews',
 	'assets',
 	'pages_fts',
+	'pages_fts_rowids',
 	'changes',
 	'page_assets',
 	'page_links',
