@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
 	import { parse } from '@infixer-link/content';
-	import type { LinkPreviewDto, PageRefDto } from '@infixer-link/contracts';
+	import type { AssetDto, LinkPreviewDto, PageRefDto } from '@infixer-link/contracts';
 	import { lineClass } from './classes.ts';
 	import Inlines from './Inlines.svelte';
 
@@ -12,9 +12,10 @@
 		source: string;
 		names: Record<string, PageRefDto>;
 		previews: Record<string, LinkPreviewDto>;
+		assets: Record<string, AssetDto>;
 	}
 
-	let { source, names, previews }: Props = $props();
+	let { source, names, previews, assets }: Props = $props();
 	let parsed = $derived(parse(source));
 	const NBSP = '\u00a0'; // keeps empty lines one line tall
 </script>
@@ -30,13 +31,24 @@
 					>{line.lang ?? ''}</span
 				>{NBSP}{:else if card?.ok && card.title}<a
 					class="card"
+					class:has-image={!!card.image}
 					href={line.url}
 					target="_blank"
 					rel="noopener nofollow ugc"
-					><span class="card-title">{card.title}</span>{#if card.description}<span class="card-desc"
-							>{card.description}</span
-						>{/if}<span class="card-host">{card.siteName ?? card.host}</span></a
-				>{:else}<Inlines nodes={line.inlines} {names} />{/if}
+					><span class="card-text"
+						><span class="card-title">{card.title}</span>{#if card.description}<span
+								class="card-desc">{card.description}</span
+							>{/if}<span class="card-host">{card.siteName ?? card.host}</span></span
+					>{#if card.image}<img
+							class="card-image"
+							src={card.image.url}
+							width={card.image.width}
+							height={card.image.height}
+							alt=""
+							loading="lazy"
+							decoding="async"
+						/>{/if}</a
+				>{:else}<Inlines nodes={line.inlines} {names} {assets} />{/if}
 		</div>
 	{/each}
 </div>

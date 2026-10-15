@@ -4,6 +4,7 @@ import { parse } from '@infixer-link/content';
 import { getPublicPage, isDeletedPage } from '#lib/server/pages/service.ts';
 import { relatedPages, resolveNames } from '#lib/server/pages/graph.ts';
 import { getPreviews } from '#lib/server/previews.ts';
+import { getAssets } from '#lib/server/assets.ts';
 import type { PageServerLoad } from './$types';
 
 /** Plain-text summary for <meta> / OGP: the first lines of visible text. */
@@ -29,7 +30,7 @@ function summarize(parsed: ReturnType<typeof parse>): string {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ params, url }) => {
 	if (!UUID_RE.test(params.id)) error(404, 'ページが見つかりません');
 	const page = await getPublicPage(env.DB, params.id);
 	if (!page) {
@@ -37,10 +38,14 @@ export const load: PageServerLoad = async ({ params }) => {
 		error(404, 'ページが見つかりません');
 	}
 	const parsed = parse(page.source);
-	const [names, previews, related] = await Promise.all([
+	const [names, previews, related, assets] = await Promise.all([
 		resolveNames(env.DB, parsed.links),
-		getPreviews(env.DB, parsed.cards),
-		relatedPages(env.DB, page.id)
+		getPreviews(env.DB, parsed.cards, env.MEDIA_BASE_URL),
+		relatedPages(env.DB, page.id),
+		getAssets(env.DB, parsed.assets, env.MEDIA_BASE_URL)
 	]);
-	return { page, names, previews, related, description: summarize(parsed) };
+	// OGP image: the first ready image of the page, as an absolute URL.
+	const first = parsed.assets.map((id) => assets[id]).find((a) => a?.url);
+	const ogImage = first?.url ? new URL(first.url, url.origin).toString() : null;
+	return { page, names, previews, related, assets, ogImage, description: summarize(parsed) };
 };

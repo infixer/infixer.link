@@ -26,12 +26,25 @@ import {
 	type CompletionResult
 } from '@codemirror/autocomplete';
 import { parse, type Inline, type Line, type Parsed } from '@infixer-link/content';
-import type { LinkPreviewDto, PageRefDto, TitleSuggestionDto } from '@infixer-link/contracts';
+import type {
+	AssetDto,
+	LinkPreviewDto,
+	PageRefDto,
+	TitleSuggestionDto
+} from '@infixer-link/contracts';
 import { lineClass, missingHref, pageHref } from '../content/classes.ts';
 
 export interface LiveData {
 	names: Record<string, PageRefDto>;
 	previews: Record<string, LinkPreviewDto>;
+	assets: Record<string, AssetDto>;
+}
+
+/** Local state of an image being uploaded from this editor (uploads.svelte.ts). */
+export interface LocalImage {
+	status: 'uploading' | 'failed';
+	preview: string;
+	error?: string;
 }
 
 export interface LiveOptions {
@@ -41,6 +54,7 @@ export interface LiveOptions {
 	/** Looks up names / previews that are not known yet; resolves with additions. */
 	fetchMissing: (missing: { names: string[]; urls: string[] }) => Promise<Partial<LiveData>>;
 	suggest: (query: string, signal: AbortSignal) => Promise<TitleSuggestionDto[]>;
+	localImage: (assetId: string) => LocalImage | undefined;
 }
 
 /** New names / previews arrived: rebuild decorations. */
@@ -79,21 +93,80 @@ class CardWidget extends WidgetType {
 		a.rel = 'noopener nofollow ugc';
 		a.dataset.href = this.url;
 		a.dataset.ext = '1';
+		const text = document.createElement('span');
+		text.className = 'card-text';
 		const title = document.createElement('span');
 		title.className = 'card-title';
 		title.textContent = this.preview.title ?? this.url;
-		a.appendChild(title);
+		text.appendChild(title);
 		if (this.preview.description) {
 			const desc = document.createElement('span');
 			desc.className = 'card-desc';
 			desc.textContent = this.preview.description;
-			a.appendChild(desc);
+			text.appendChild(desc);
 		}
 		const host = document.createElement('span');
 		host.className = 'card-host';
 		host.textContent = this.preview.siteName ?? this.preview.host;
-		a.appendChild(host);
+		text.appendChild(host);
+		a.appendChild(text);
+		if (this.preview.image) {
+			a.classList.add('has-image');
+			a.appendChild(
+				imageElement(
+					this.preview.image.url,
+					this.preview.image.width,
+					this.preview.image.height,
+					'card-image'
+				)
+			);
+		}
 		return a;
+	}
+	ignoreEvent() {
+		return false;
+	}
+}
+
+function imageElement(src: string, width: number | null, height: number | null, className: string) {
+	const img = document.createElement('img');
+	img.className = className;
+	img.src = src;
+	img.alt = '';
+	img.decoding = 'async';
+	img.loading = 'lazy';
+	if (width && height) {
+		img.width = width;
+		img.height = height;
+	}
+	return img;
+}
+
+/** An image in the document: ready asset, local preview while uploading, or a placeholder. */
+class ImageWidget extends WidgetType {
+	constructor(
+		readonly id: string,
+		readonly src: string | null,
+		readonly width: number | null,
+		readonly height: number | null,
+		readonly note: string | null
+	) {
+		super();
+	}
+	eq(other: ImageWidget) {
+		return other.id === this.id && other.src === this.src && other.note === this.note;
+	}
+	toDOM() {
+		const wrap = document.createElement('span');
+		wrap.className = 'img-wrap';
+		if (this.src) wrap.appendChild(imageElement(this.src, this.width, this.height, 'img'));
+		if (this.note || !this.src) {
+			const note = document.createElement('span');
+			note.className = this.src ? 'img-note' : 'asset';
+			note.textContent = this.note ?? '[画像]';
+			wrap.appendChild(note);
+		}
+		return wrap;
 	}
 	ignoreEvent() {
 		return false;
@@ -126,7 +199,8 @@ function inlineDecorations(
 	base: number,
 	active: boolean,
 	data: LiveData,
-	out: Range<Decoration>[]
+	out: Range<Decoration>[],
+	local: LiveOptions['localImage']
 ) {
 	const conceal = (from: number, to: number) => {
 		if (to <= from) return;
@@ -172,16 +246,27 @@ function inlineDecorations(
 				mark(node.innerFrom, node.innerTo, 'math');
 				conceal(node.innerTo, node.to);
 				break;
-			case 'asset':
-				if (active) mark(node.from, node.to, 'asset');
-				else
-					out.push(
-						Decoration.replace({ widget: new LabelWidget('[画像]', 'asset') }).range(
-							base + node.from,
-							base + node.to
-						)
-					);
+			case 'asset': {
+				if (active) {
+					mark(node.from, node.to, 'asset');
+					break;
+				}
+				const ready = data.assets[node.id];
+				const pending = local(node.id);
+				const widget = ready?.url
+					? new ImageWidget(node.id, ready.url, ready.width, ready.height, null)
+					: pending
+						? new ImageWidget(
+								node.id,
+								pending.preview,
+								null,
+								null,
+								pending.status === 'failed' ? (pending.error ?? '送信に失敗しました') : '送信中…'
+							)
+						: new ImageWidget(node.id, null, null, null, null);
+				out.push(Decoration.replace({ widget }).range(base + node.from, base + node.to));
 				break;
+			}
 			default: {
 				const cls =
 					node.type === 'strong'
@@ -193,7 +278,7 @@ function inlineDecorations(
 								: 'u';
 				conceal(node.from, node.innerFrom);
 				mark(node.innerFrom, node.innerTo, cls);
-				inlineDecorations(node.children, base, active, data, out);
+				inlineDecorations(node.children, base, active, data, out, local);
 				conceal(node.innerTo, node.to);
 			}
 		}
@@ -205,7 +290,8 @@ function lineDecorations(
 	from: number,
 	active: boolean,
 	data: LiveData,
-	out: Range<Decoration>[]
+	out: Range<Decoration>[],
+	local: LiveOptions['localImage']
 ) {
 	const attributes = line.ordered !== undefined ? { 'data-n': String(line.ordered) } : undefined;
 	out.push(Decoration.line({ class: lineClass(line, active), attributes }).range(from));
@@ -235,7 +321,7 @@ function lineDecorations(
 		);
 		return;
 	}
-	inlineDecorations(line.inlines, from, active, data, out);
+	inlineDecorations(line.inlines, from, active, data, out, local);
 }
 
 function activeLines(state: EditorState): Set<number> {
@@ -249,13 +335,17 @@ function activeLines(state: EditorState): Set<number> {
 	return lines;
 }
 
-function build(state: EditorState, data: LiveData): DecorationSet {
+function build(
+	state: EditorState,
+	data: LiveData,
+	local: LiveOptions['localImage']
+): DecorationSet {
 	const parsed = state.field(parsedField);
 	const active = activeLines(state);
 	const out: Range<Decoration>[] = [];
 	for (const line of parsed.lines) {
 		const docLine = state.doc.line(line.index + 1);
-		lineDecorations(line, docLine.from, active.has(docLine.number), data, out);
+		lineDecorations(line, docLine.from, active.has(docLine.number), data, out, local);
 	}
 	return Decoration.set(out, true);
 }
@@ -339,13 +429,19 @@ function completionSource(options: LiveOptions) {
 	};
 }
 
-export function livePreview(options: LiveOptions): Extension {
+export interface LivePreview {
+	extension: Extension;
+	/** Merges new data (e.g. an uploaded image) or just redraws (upload progress). */
+	refresh(view: EditorView, added?: Partial<LiveData>): void;
+}
+
+export function livePreview(options: LiveOptions): LivePreview {
 	let data = options.data;
 	let pending: ReturnType<typeof setTimeout> | undefined;
 	const asked = new Set<string>();
 
 	const decorations = StateField.define<DecorationSet>({
-		create: (state) => build(state, data),
+		create: (state) => build(state, data, options.localImage),
 		update(value, tr) {
 			for (const e of tr.effects) if (e.is(dataChanged)) data = e.value;
 			if (
@@ -353,7 +449,7 @@ export function livePreview(options: LiveOptions): Extension {
 				tr.selection ||
 				tr.effects.some((e) => e.is(dataChanged) || e.is(focusChanged))
 			) {
-				return build(tr.state, data);
+				return build(tr.state, data, options.localImage);
 			}
 			return value;
 		},
@@ -378,6 +474,7 @@ export function livePreview(options: LiveOptions): Extension {
 				.fetchMissing({ names, urls })
 				.catch(() => ({}) as Partial<LiveData>);
 			const next = {
+				...data,
 				names: { ...data.names, ...added.names },
 				previews: { ...data.previews, ...added.previews }
 			};
@@ -399,7 +496,7 @@ export function livePreview(options: LiveOptions): Extension {
 		}
 	});
 
-	return [
+	const extension = [
 		focusField,
 		EditorView.focusChangeEffect.of((_state, focusing) => focusChanged.of(focusing)),
 		parsedField,
@@ -412,4 +509,16 @@ export function livePreview(options: LiveOptions): Extension {
 		autocompletion({ override: [completionSource(options)], activateOnTyping: true, icons: false }),
 		keymap.of([{ key: 'Enter', run: continueList }, ...closeBracketsKeymap, ...completionKeymap])
 	];
+
+	return {
+		extension,
+		refresh(view, added = {}) {
+			const next: LiveData = {
+				names: { ...data.names, ...added.names },
+				previews: { ...data.previews, ...added.previews },
+				assets: { ...data.assets, ...added.assets }
+			};
+			view.dispatch({ effects: dataChanged.of(next) });
+		}
+	};
 }

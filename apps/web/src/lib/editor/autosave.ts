@@ -25,7 +25,8 @@ export type SaveState =
 	| 'quota-error'
 	| 'server-error'
 	| 'too-large'
-	| 'invalid';
+	| 'invalid'
+	| 'uploading';
 
 export interface Snapshot {
 	title: string;
@@ -92,7 +93,8 @@ export const STATE_LABEL: Record<SaveState, string> = {
 	'quota-error': '端末に保存できません',
 	'server-error': '送信に失敗しました（再試行します）',
 	'too-large': '本文が大きすぎて送信できません',
-	invalid: '保存できません'
+	invalid: '保存できません',
+	uploading: '画像を送信中（端末に保存済み）'
 };
 
 const same = (a: Snapshot, b: Snapshot) => a.title === b.title && a.source === b.source;
@@ -164,6 +166,8 @@ export class Autosave {
 	private localTimer: unknown;
 	private remoteTimer: unknown;
 	private retryIndex = 0;
+	/** While it returns true for the current snapshot, nothing is sent (images still uploading). */
+	private hold: ((snapshot: Snapshot) => boolean) | null = null;
 	private listeners = new Set<(state: SaveState) => void>();
 	private readonly opts: Required<AutosaveOptions>;
 
@@ -232,7 +236,12 @@ export class Autosave {
 	/** Manual retry, network back online, auth renewed, or page visible again. */
 	retry() {
 		if (this.state === 'conflict') return;
-		if (BLOCKED.has(this.state) || this.state === 'offline' || this.state === 'server-error') {
+		if (
+			BLOCKED.has(this.state) ||
+			this.state === 'offline' ||
+			this.state === 'server-error' ||
+			this.state === 'uploading'
+		) {
 			this.set(same(this.current, this.synced) ? 'synced' : 'dirty');
 		}
 		this.retryIndex = 0;
@@ -270,6 +279,14 @@ export class Autosave {
 		this.synced = this.current;
 		this.baseRevision = server.revision;
 		return true;
+	}
+
+	/**
+	 * Holds publishing while the predicate is true (design §10.2: a snapshot that references
+	 * images still uploading is kept locally). Call `retry()` when the predicate may have changed.
+	 */
+	setHold(predicate: (snapshot: Snapshot) => boolean) {
+		this.hold = predicate;
 	}
 
 	dispose() {
@@ -324,6 +341,10 @@ export class Autosave {
 		if (this.inFlight) return;
 		if (BLOCKED.has(this.state)) return;
 		const snapshot = this.current;
+		if (this.hold?.(snapshot)) {
+			this.set('uploading');
+			return;
+		}
 		if (same(snapshot, this.synced) && !this.pending) {
 			this.dirtySince = null;
 			if (this.state !== 'quota-error') this.set('synced');

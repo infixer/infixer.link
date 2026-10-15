@@ -23,7 +23,9 @@ export default defineConfig({
 						'unsafe-hashes',
 						'sha256-S8qMpvofolR8Mpjy4kQvEm7m1q8clzU4dfDH0AmvZjo='
 					],
-					'img-src': ['self', 'data:'],
+					// blob: = local previews of images being uploaded; the media origin is added per
+					// environment in hooks.server.ts (MEDIA_BASE_URL).
+					'img-src': ['self', 'data:', 'blob:'],
 					'connect-src': ['self'],
 					'font-src': ['self'],
 					'object-src': ['none'],

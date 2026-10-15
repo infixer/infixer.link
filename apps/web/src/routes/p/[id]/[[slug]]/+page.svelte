@@ -76,6 +76,7 @@
 	<meta property="og:title" content={data.page.title} />
 	<meta property="og:description" content={data.description} />
 	<meta property="og:site_name" content="infixer.link" />
+	{#if data.ogImage}<meta property="og:image" content={data.ogImage} />{/if}
 </svelte:head>
 
 {#if deletedRevision !== null}
@@ -92,7 +93,12 @@
 				更新 <time datetime={data.page.updatedAt}>{data.page.updatedAt.slice(0, 10)}</time>
 			</p>
 			<div class="source">
-				<Rendered source={data.page.source} names={data.names} previews={data.previews} />
+				<Rendered
+					source={data.page.source}
+					names={data.names}
+					previews={data.previews}
+					assets={data.assets}
+				/>
 			</div>
 		</article>
 		{#if owner && Editor}
@@ -104,6 +110,7 @@
 						initial={data.page}
 						names={data.names}
 						previews={data.previews}
+						assets={data.assets}
 						{focus}
 						onready={ready}
 						ondeleted={deleted}
