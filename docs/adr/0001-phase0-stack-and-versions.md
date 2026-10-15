@@ -24,7 +24,7 @@
 1. **`@cloudflare/vitest-pool-workers` は deprecated**。`@cloudflare/vitest-plugin` に改名された（`cloudflareTest()` プラグイン、`env` は `cloudflare:workers` から import）。Vitest 5 系ではなく 4.1 系を採用（Kit scaffold と plugin の両方が対応）。
 2. **SvelteKit 3 + adapter-cloudflare 8 では `event.platform.env` が無い**。bindings は `import { env } from 'cloudflare:workers'` で読む。`App.Platform` の宣言は削除した。
 3. **workerd（compatibility_date 2026-10-15）と Node 24 にネイティブ Temporal は無い**。サーバーでは polyfill が常に使われる（`/api/health` の `temporal: "polyfill"` で確認可能）。`@garden/time` はネイティブがあればそれを使う。TypeScript 6 の lib が global `Temporal` 型を持つため、型は polyfill 側に統一している。
-4. **`wrangler types` が生成する `worker-configuration.d.ts` は build 出力（`.svelte-kit/cloudflare/_worker.js`）を import する**。svelte-check が生成 JS を検査しないよう `checkJs: false` と `exclude` を設定。
+4. **`wrangler types` が生成する `worker-configuration.d.ts` は build 出力（`.svelte-kit/cloudflare/_worker.js`）の有無で内容が変わる**（存在すれば `mainModule` 型を追加）。コミットすると、clean checkout の CI で `wrangler types --check` が失敗した。→ このファイルは Git 管理せず、`prepare`（install 時）と `check` で毎回生成する。`build` から `--check` を外した。svelte-check が生成 JS を検査しないよう `checkJs: false` と `exclude` を設定。
 5. production の `workers_dev` / `preview_urls` は `false`（設計 §9.8）。
 
 ## 代案
