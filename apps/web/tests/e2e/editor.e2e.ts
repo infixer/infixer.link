@@ -57,7 +57,7 @@ test('no edit button: the read view turns into the editor in place, without movi
 	});
 	await page.goto(`/p/${pageId}/x`);
 	const readTitle = await page.locator('article h1').boundingBox();
-	const readLine = await page.locator('article .line').first().boundingBox();
+	const readLine = await page.locator('article .ln').first().boundingBox();
 	await openEditor(page);
 	await expect(page.getByTestId('edit')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: '完了' })).toHaveCount(0);
