@@ -6,6 +6,7 @@
 	import favicon from '#lib/assets/favicon.svg';
 	import NewPageButton from '#lib/owner/NewPageButton.svelte';
 	import ThemeSwitch from '#lib/ThemeSwitch.svelte';
+	import OfflineStatus from '#lib/offline/OfflineStatus.svelte';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
@@ -47,6 +48,7 @@
 </header>
 
 <main>
+	<OfflineStatus />
 	{@render children()}
 </main>
 

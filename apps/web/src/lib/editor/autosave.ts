@@ -41,10 +41,25 @@ export interface PendingMutation extends Snapshot {
 	mutationId: string;
 }
 
+/** A page that exists only on this device until its first save (created offline). */
+export interface CreateIntent {
+	dailyDate?: string;
+}
+
 export interface Draft extends Snapshot {
 	pageId: string;
+	/** Server revision the draft is based on; 0 for a page not created on the server yet. */
 	baseRevision: number;
+	/** Content of `baseRevision`: the common base for a three-way comparison (Phase 6). */
+	base?: Snapshot;
+	create?: CreateIntent;
 	pending?: PendingMutation;
+	/** Set when the server rejected the draft as conflicting (editor or background sync). */
+	conflict?: boolean;
+	/** For a page created on this device: the daily page another device created first. */
+	existingPageId?: string;
+	/** Why the background sync could not send it (shown in the list of unsent drafts). */
+	error?: string;
 	savedAt: number;
 }
 
@@ -54,6 +69,12 @@ export interface DraftStore {
 	delete(pageId: string): Promise<void>;
 }
 
+/** What a conflict was detected against. */
+export interface ConflictInfo {
+	/** For a page created on this device: the daily page that already exists on the server. */
+	existingPageId?: string;
+}
+
 export type SendResult =
 	| { ok: true; revision: number }
 	| {
@@ -61,10 +82,18 @@ export type SendResult =
 			kind: 'offline' | 'auth' | 'conflict' | 'too-large' | 'invalid' | 'server';
 			currentRevision?: number;
 			message?: string;
+			/** Creating a daily page that another device created first. */
+			existingPageId?: string;
 	  };
 
 export interface Transport {
-	save(pageId: string, baseRevision: number, mutation: PendingMutation): Promise<SendResult>;
+	/** Updates the page, or creates it when `create` is given (baseRevision is then 0). */
+	save(
+		pageId: string,
+		baseRevision: number,
+		mutation: PendingMutation,
+		create?: CreateIntent
+	): Promise<SendResult>;
 }
 
 export interface Clock {
@@ -116,8 +145,11 @@ export interface RestoreResult {
 	baseRevision: number;
 	pending?: PendingMutation;
 	/** Local edits exist that were made on an older server revision. */
-	conflict?: { local: Snapshot; server: ServerPage };
+	conflict?: { local: Snapshot; server: ServerPage; base?: Snapshot };
 	restoredDraft: boolean;
+	create?: CreateIntent;
+	/** A page created on this device collided with an existing daily page. */
+	existingPageId?: string;
 }
 
 /**
@@ -129,6 +161,19 @@ export interface RestoreResult {
 export function restore(server: ServerPage, draft: Draft | undefined): RestoreResult {
 	if (!draft)
 		return { current: server, server, baseRevision: server.revision, restoredDraft: false };
+	if (draft.create && server.revision === 0) {
+		// Created on this device and never sent: resume it as is.
+		const local = { title: draft.title, source: draft.source };
+		return {
+			current: local,
+			server,
+			baseRevision: 0,
+			pending: draft.pending,
+			restoredDraft: true,
+			create: draft.create,
+			existingPageId: draft.conflict ? draft.existingPageId : undefined
+		};
+	}
 
 	let baseRevision = draft.baseRevision;
 	let pending = draft.pending;
@@ -140,14 +185,19 @@ export function restore(server: ServerPage, draft: Draft | undefined): RestoreRe
 		return { current: server, server, baseRevision: server.revision, restoredDraft: false };
 	}
 	const local = { title: draft.title, source: draft.source };
-	if (baseRevision === server.revision) {
+	if (baseRevision === server.revision && !draft.conflict) {
 		return { current: local, server, baseRevision, pending, restoredDraft: true };
 	}
 	return {
 		current: local,
 		server,
 		baseRevision: server.revision,
-		conflict: { local, server },
+		conflict: {
+			local,
+			server,
+			// The base is only known when the draft was made on an older revision of this page.
+			base: draft.base && draft.baseRevision < server.revision ? draft.base : undefined
+		},
 		restoredDraft: true
 	};
 }
@@ -155,12 +205,15 @@ export function restore(server: ServerPage, draft: Draft | undefined): RestoreRe
 export class Autosave {
 	state: SaveState = 'clean';
 	conflictWith: ServerPage | null = null;
+	/** Details of the last conflict reported by the server. */
+	conflictInfo: ConflictInfo = {};
 	lastError: string | null = null;
 
 	private current: Snapshot;
 	private synced: Snapshot;
 	private baseRevision: number;
 	private pending: PendingMutation | undefined;
+	private create: CreateIntent | undefined;
 	private dirtySince: number | null = null;
 	private inFlight = false;
 	private localTimer: unknown;
@@ -187,9 +240,13 @@ export class Autosave {
 		this.current = initial.current;
 		this.baseRevision = initial.baseRevision;
 		this.pending = initial.pending;
+		this.create = initial.create;
 		this.synced = { title: initial.server.title, source: initial.server.source };
 		if (initial.conflict) {
 			this.conflictWith = initial.conflict.server;
+			this.state = 'conflict';
+		} else if (initial.existingPageId) {
+			this.conflictInfo = { existingPageId: initial.existingPageId };
 			this.state = 'conflict';
 		} else if (initial.restoredDraft) {
 			this.state = 'local-saved';
@@ -204,6 +261,16 @@ export class Autosave {
 
 	get revision(): number {
 		return this.baseRevision;
+	}
+
+	/** The last server-confirmed content (the base of the current edits). */
+	get base(): Snapshot {
+		return this.synced;
+	}
+
+	/** True until a page created on this device has been saved on the server. */
+	get localOnly(): boolean {
+		return this.create !== undefined;
 	}
 
 	subscribe(listener: (state: SaveState) => void): () => void {
@@ -248,9 +315,13 @@ export class Autosave {
 		void this.send();
 	}
 
-	/** Conflict resolution chosen by the user. */
-	async resolveConflict(choice: 'keep-local' | 'take-server', server: ServerPage) {
+	/**
+	 * Conflict resolution chosen by the user: the server copy, or a snapshot to save on
+	 * top of it (this device's content, or a merge of both).
+	 */
+	async resolveConflict(choice: 'take-server' | { use: Snapshot }, server: ServerPage) {
 		this.conflictWith = null;
+		this.conflictInfo = {};
 		this.pending = undefined;
 		this.baseRevision = server.revision;
 		if (choice === 'take-server') {
@@ -262,6 +333,7 @@ export class Autosave {
 			return;
 		}
 		this.synced = { title: server.title, source: server.source };
+		this.current = choice.use;
 		this.set('dirty');
 		await this.saveLocal();
 		await this.send();
@@ -323,7 +395,11 @@ export class Autosave {
 			title: this.current.title,
 			source: this.current.source,
 			baseRevision: this.baseRevision,
+			base: this.synced,
+			create: this.create,
 			pending: this.pending,
+			conflict: this.state === 'conflict' || undefined,
+			existingPageId: this.conflictInfo.existingPageId,
 			savedAt: this.deps.clock.now()
 		};
 		try {
@@ -345,7 +421,7 @@ export class Autosave {
 			this.set('uploading');
 			return;
 		}
-		if (same(snapshot, this.synced) && !this.pending) {
+		if (same(snapshot, this.synced) && !this.pending && !this.create) {
 			this.dirtySince = null;
 			if (this.state !== 'quota-error') this.set('synced');
 			return;
@@ -364,7 +440,12 @@ export class Autosave {
 
 		let result: SendResult;
 		try {
-			result = await this.deps.transport.save(this.pageId, this.baseRevision, mutation);
+			result = await this.deps.transport.save(
+				this.pageId,
+				this.baseRevision,
+				mutation,
+				this.create
+			);
 		} catch {
 			result = { ok: false, kind: 'offline' };
 		}
@@ -375,6 +456,7 @@ export class Autosave {
 			this.baseRevision = result.revision;
 			this.synced = { title: mutation.title, source: mutation.source };
 			this.pending = undefined;
+			this.create = undefined;
 			if (same(this.current, this.synced)) {
 				this.dirtySince = null;
 				try {
@@ -395,6 +477,7 @@ export class Autosave {
 			case 'conflict':
 				this.pending = undefined;
 				this.conflictWith = null;
+				this.conflictInfo = { existingPageId: result.existingPageId };
 				this.set('conflict');
 				await this.saveLocal();
 				return;

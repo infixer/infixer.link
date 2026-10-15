@@ -23,9 +23,29 @@
 		return attempt === 0 ? `無題 ${stamp}` : `無題 ${stamp} (${attempt + 1})`;
 	}
 
+	/** Offline: the page is created on this device and published when the network returns. */
+	async function createLocal() {
+		const { idbDraftStore } = await import('../editor/draft-store.ts');
+		const id = crypto.randomUUID();
+		await idbDraftStore.put({
+			pageId: id,
+			// The name is only checked when the page reaches the server: make it unlikely to collide.
+			title: `${untitled(0)} ${id.slice(0, 4)}`,
+			source: '',
+			baseRevision: 0,
+			create: {},
+			savedAt: Date.now()
+		});
+		location.assign(`${resolve('/offline')}?draft=${id}`);
+	}
+
 	async function create() {
 		if (!owner || busy) return;
 		busy = true;
+		if (owner.offline || !navigator.onLine) {
+			await createLocal().finally(() => (busy = false));
+			return;
+		}
 		try {
 			for (let attempt = 0; attempt < 5; attempt++) {
 				const title = untitled(attempt);

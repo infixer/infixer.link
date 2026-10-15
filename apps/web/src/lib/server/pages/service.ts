@@ -17,6 +17,7 @@ import type {
 	PageListDto,
 	ResolveDto,
 	RestorePageRequest,
+	RevisionContentDto,
 	RevisionDto,
 	UpdatePageRequest
 } from '@infixer-link/contracts';
@@ -224,6 +225,31 @@ export async function createPage(
 	const replayed = await replay(db, input.mutationId, hash);
 	if (replayed) return replayed;
 
+	try {
+		return await insertPage(db, id, input, content, hash, now);
+	} catch (error) {
+		// Tell a client that created the day's page offline which page already exists.
+		if (error instanceof ApiError && error.code === 'daily_conflict' && input.dailyDate) {
+			const existing = await db
+				.prepare('SELECT id FROM pages WHERE daily_date = ?')
+				.bind(input.dailyDate)
+				.first<{ id: string }>();
+			if (existing) {
+				throw new ApiError('daily_conflict', error.message, { pageId: existing.id });
+			}
+		}
+		throw error;
+	}
+}
+
+function insertPage(
+	db: D1Database,
+	id: string,
+	input: CreatePageRequest,
+	content: PreparedContent,
+	hash: string,
+	now: number
+): Promise<MutationResult> {
 	return write(
 		db,
 		input.mutationId,
@@ -563,6 +589,29 @@ export async function listRevisions(db: D1Database, id: string): Promise<Revisio
 		deleted: r.deleted_at !== null,
 		createdAt: toIso(r.created_at)
 	}));
+}
+
+/** Content of one revision (owner): the common base for a three-way comparison. */
+export async function getRevision(
+	db: D1Database,
+	id: string,
+	revision: number
+): Promise<RevisionContentDto | null> {
+	const row = await db
+		.prepare(
+			`SELECT revision, title, source, deleted_at FROM page_revisions
+			 WHERE page_id = ? AND revision = ?`
+		)
+		.bind(id, revision)
+		.first<{ revision: number; title: string; source: string; deleted_at: number | null }>();
+	return row
+		? {
+				revision: row.revision,
+				title: row.title,
+				source: row.source,
+				deleted: row.deleted_at !== null
+			}
+		: null;
 }
 
 /**

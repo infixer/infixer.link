@@ -303,3 +303,30 @@ describe('public reads', () => {
 		expect(again.status).toBe(304);
 	});
 });
+
+describe('revision content (Phase 6: base for three-way comparison)', () => {
+	it('returns the title and source of a past revision to the owner only', async () => {
+		const created = await owner.json('/api/owner/v1/pages', {
+			body: newPage({ title: '版', source: '最初' })
+		});
+		const id = created.body.pageId as string;
+		await owner.json(`/api/owner/v1/pages/${id}`, {
+			method: 'PUT',
+			body: {
+				baseRevision: 1,
+				mutationId: crypto.randomUUID(),
+				title: '版',
+				format: 'link-text-v1',
+				source: '二番目'
+			}
+		});
+		const first = await owner.json(`/api/owner/v1/pages/${id}/revisions/1`);
+		expect(first).toMatchObject({
+			status: 200,
+			body: { revision: 1, title: '版', source: '最初', deleted: false }
+		});
+		expect((await owner.json(`/api/owner/v1/pages/${id}/revisions/9`)).status).toBe(404);
+		expect((await owner.json(`/api/owner/v1/pages/${id}/revisions/x`)).status).toBe(404);
+		expect((await new ApiClient().json(`/api/owner/v1/pages/${id}/revisions/1`)).status).toBe(401);
+	});
+});

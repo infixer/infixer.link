@@ -6,19 +6,34 @@
  *    upload is simply restarted (also after a reload, from IndexedDB).
  * 3. While a referenced image is not ready, autosave holds the page locally.
  */
-import type { ApiErrorBody, AssetDto } from '@infixer-link/contracts';
+import type { AssetDto } from '@infixer-link/contracts';
 import type { CsrfSource } from './transport.ts';
 import { localDb } from './local-db.ts';
+import { uploadImage } from './upload-client.ts';
 
 export const ACCEPTED = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 export const MAX_BYTES = 10 * 1024 * 1024;
 
-interface StoredUpload {
+/** An image Blob kept in IndexedDB until the server has it (also used by the outbox sync). */
+export interface StoredUpload {
 	assetId: string;
 	pageId: string;
 	blob: Blob;
 	name: string;
 	createdAt: number;
+}
+
+export async function storedUploads(pageId?: string): Promise<StoredUpload[]> {
+	const db = await localDb();
+	return (
+		pageId ? await db.getAllFromIndex('uploads', 'pageId', pageId) : await db.getAll('uploads')
+	) as StoredUpload[];
+}
+
+export async function deleteStoredUpload(assetId: string): Promise<void> {
+	await localDb()
+		.then((db) => db.delete('uploads', assetId))
+		.catch(() => {});
 }
 
 export interface UploadState {
@@ -82,9 +97,7 @@ export class Uploads {
 	async resume(source: string) {
 		let stored: StoredUpload[];
 		try {
-			stored = (await (
-				await localDb()
-			).getAllFromIndex('uploads', 'pageId', this.pageId)) as StoredUpload[];
+			stored = await storedUploads(this.pageId);
 		} catch {
 			return;
 		}
@@ -121,21 +134,6 @@ export class Uploads {
 		for (const s of Object.values(this.states)) URL.revokeObjectURL(s.preview);
 	}
 
-	private async send(path: string, init: RequestInit): Promise<Response> {
-		const run = (token: string) =>
-			fetch(path, {
-				...init,
-				credentials: 'same-origin',
-				headers: { ...(init.headers as Record<string, string>), 'x-csrf-token': token }
-			});
-		let res = await run(this.csrf.get());
-		if (res.status === 403) {
-			const token = await this.csrf.refresh();
-			if (token) res = await run(token);
-		}
-		return res;
-	}
-
 	private fail(assetId: string, error: string, retryable: boolean) {
 		const state = this.states[assetId];
 		if (state) this.states[assetId] = { ...state, status: 'failed', error, retryable };
@@ -145,45 +143,14 @@ export class Uploads {
 	private async run(assetId: string) {
 		const item = this.blobs[assetId];
 		if (!item) return;
-		try {
-			const put = await this.send(`/api/owner/v1/assets/${assetId}`, {
-				method: 'PUT',
-				body: item.blob,
-				headers: { 'content-type': item.blob.type, 'x-file-name': encodeURIComponent(item.name) }
-			});
-			if (!put.ok) {
-				const body = (await put.json().catch(() => null)) as ApiErrorBody | null;
-				return this.fail(
-					assetId,
-					body?.message ?? '画像を送信できませんでした',
-					put.status >= 500 || put.status === 401
-				);
-			}
-			const done = await this.send(`/api/owner/v1/assets/${assetId}/complete`, {
-				method: 'POST',
-				body: '{}',
-				headers: { 'content-type': 'application/json' }
-			});
-			const body = (await done.json().catch(() => null)) as
-				(AssetDto & Partial<ApiErrorBody>) | null;
-			if (!done.ok || !body || body.status !== 'ready') {
-				return this.fail(
-					assetId,
-					body?.message ?? '画像を確定できませんでした',
-					done.status >= 500
-				);
-			}
-			this.onReady(body);
-			const state = this.states[assetId];
-			delete this.states[assetId];
-			delete this.blobs[assetId];
-			if (state) setTimeout(() => URL.revokeObjectURL(state.preview), 10_000);
-			await localDb()
-				.then((db) => db.delete('uploads', assetId))
-				.catch(() => {});
-			this.onChange();
-		} catch {
-			this.fail(assetId, '通信できませんでした。接続が戻ったら再送信してください', true);
-		}
+		const result = await uploadImage(this.csrf, assetId, item.blob, item.name);
+		if (!result.ok) return this.fail(assetId, result.error, result.retryable);
+		this.onReady(result.asset);
+		const state = this.states[assetId];
+		delete this.states[assetId];
+		delete this.blobs[assetId];
+		if (state) setTimeout(() => URL.revokeObjectURL(state.preview), 10_000);
+		await deleteStoredUpload(assetId);
+		this.onChange();
 	}
 }

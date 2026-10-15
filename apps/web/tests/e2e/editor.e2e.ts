@@ -118,7 +118,8 @@ test.describe('chromium-only scenarios', () => {
 		await page.reload();
 		await page.unroute(`**/api/owner/v1/pages/${pageId}`);
 		await openEditor(page);
-		await expect(page.getByText('端末に保存されていた下書きを復元しました。')).toBeVisible();
+		// Sent either by the restored editor or, since Phase 6, by the background outbox
+		// sync that runs before the editor reads its draft (ADR 0015).
 		await expect(page.locator('.cm-content')).toContainText('オフラインで書いた');
 		await expect(saveState(page)).toHaveText('公開済み', { timeout: 10_000 });
 		expect((await getOwnerPage(owner.request, pageId)).source).toBe('base オフラインで書いた');

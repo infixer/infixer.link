@@ -167,6 +167,13 @@ export interface RevisionDto {
 	createdAt: string;
 }
 
+export interface RevisionContentDto {
+	revision: number;
+	title: string;
+	source: string;
+	deleted: boolean;
+}
+
 export interface ResolveDto {
 	pageId: string;
 	title: string;
