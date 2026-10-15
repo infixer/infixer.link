@@ -21,10 +21,11 @@ import type {
 	UpdatePageRequest
 } from '@infixer-link/contracts';
 import { LIMITS } from '@infixer-link/contracts';
-import { extractReferences, nameKey } from '@infixer-link/content';
+import { extractReferences, nameKey, parse, plainLines } from '@infixer-link/content';
 import { parseDailyDate } from '@infixer-link/time';
 import { ApiError, toIso } from '../http';
 import { base64url, sha256Hex } from '../crypto';
+import { mediaUrl } from '../assets';
 
 type Operation = 'create' | 'update' | 'delete' | 'restore';
 
@@ -46,7 +47,12 @@ interface PreparedContent {
 	source: string;
 	linksJson: string;
 	assetsJson: string;
+	thumbsJson: string;
 }
+
+/** The list reads only the start of each page for card text. */
+const LIST_HEAD_CHARS = 600;
+const LIST_EXCERPT_CHARS = 120;
 
 const PAGE_COLUMNS =
 	'id, title, source, format, revision, daily_date, created_at, updated_at, deleted_at';
@@ -70,7 +76,8 @@ function prepareContent(title: string, source: string): PreparedContent {
 		titleKey,
 		source,
 		linksJson: JSON.stringify(refs.links),
-		assetsJson: JSON.stringify(refs.assets)
+		assetsJson: JSON.stringify(refs.assets),
+		thumbsJson: JSON.stringify(refs.thumbnails)
 	};
 }
 
@@ -225,8 +232,9 @@ export async function createPage(
 			const row = await db
 				.prepare(
 					`INSERT INTO pages (id, title, title_key, source, format, revision, daily_date, created_at,
-					   updated_at, last_mutation_id, request_hash, last_operation, links_json, assets_json)
-					 VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'create', ?, ?)
+					   updated_at, last_mutation_id, request_hash, last_operation, links_json, assets_json,
+					   thumbs_json)
+					 VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'create', ?, ?, ?)
 					 ON CONFLICT (id) DO NOTHING
 					 RETURNING revision`
 				)
@@ -242,7 +250,8 @@ export async function createPage(
 					input.mutationId,
 					hash,
 					content.linksJson,
-					content.assetsJson
+					content.assetsJson,
+					content.thumbsJson
 				)
 				.first();
 			return row !== null;
@@ -280,7 +289,7 @@ export async function updatePage(
 				.prepare(
 					`UPDATE pages SET title = ?, title_key = ?, source = ?, format = ?, revision = revision + 1,
 					   updated_at = ?, last_mutation_id = ?, request_hash = ?, last_operation = 'update',
-					   links_json = ?, assets_json = ?
+					   links_json = ?, assets_json = ?, thumbs_json = ?
 					 WHERE id = ? AND revision = ? AND deleted_at IS NULL
 					 RETURNING revision`
 				)
@@ -294,6 +303,7 @@ export async function updatePage(
 					hash,
 					content.linksJson,
 					content.assetsJson,
+					content.thumbsJson,
 					id,
 					input.baseRevision
 				)
@@ -366,7 +376,7 @@ export async function restorePage(
 				.prepare(
 					`UPDATE pages SET title = ?, title_key = ?, source = ?, format = ?, deleted_at = NULL,
 					   revision = revision + 1, updated_at = ?, last_mutation_id = ?, request_hash = ?,
-					   last_operation = 'restore', links_json = ?, assets_json = ?
+					   last_operation = 'restore', links_json = ?, assets_json = ?, thumbs_json = ?
 					 WHERE id = ? AND revision = ?
 					 RETURNING revision`
 				)
@@ -380,6 +390,7 @@ export async function restorePage(
 					hash,
 					content.linksJson,
 					content.assetsJson,
+					content.thumbsJson,
 					id,
 					input.baseRevision
 				)
@@ -444,17 +455,46 @@ function decodeCursor(cursor: string): { updatedAt: number; id: string } {
 	}
 }
 
+/**
+ * Update-ordered list for the card grid. One query: the page window (cursor), then each
+ * page's first thumbnail candidate with a ready image (asset, or a card's copied image).
+ */
 export async function listPages(
 	db: D1Database,
-	options: { cursor?: string; limit?: number } = {}
+	options: { cursor?: string; limit?: number; mediaBaseUrl?: string } = {}
 ): Promise<PageListDto> {
 	const limit = Math.min(Math.max(options.limit ?? LIMITS.listDefault, 1), LIMITS.listMax);
 	const after = options.cursor ? decodeCursor(options.cursor) : null;
 	const { results } = await db
 		.prepare(
-			`SELECT id, title, revision, daily_date, updated_at FROM pages
-			 WHERE deleted_at IS NULL ${after ? 'AND (updated_at < ?1 OR (updated_at = ?1 AND id < ?2))' : ''}
-			 ORDER BY updated_at DESC, id DESC LIMIT ${after ? '?3' : '?1'}`
+			`WITH list AS (
+			   SELECT id, title, revision, daily_date, updated_at, thumbs_json,
+			     substr(source, 1, ${LIST_HEAD_CHARS}) AS head
+			   FROM pages
+			   WHERE deleted_at IS NULL ${after ? 'AND (updated_at < ?1 OR (updated_at = ?1 AND id < ?2))' : ''}
+			   ORDER BY updated_at DESC, id DESC LIMIT ${after ? '?3' : '?1'}
+			 ),
+			 candidates AS (
+			   SELECT l.id AS page_id, CAST(j.key AS INTEGER) AS ord, j.value AS ref
+			   FROM list l, json_each(l.thumbs_json) j
+			 ),
+			 images AS (
+			   SELECT c.page_id, c.ord, a.object_key, a.width, a.height
+			   FROM candidates c JOIN assets a ON a.id = substr(c.ref, 7) AND a.status = 'ready'
+			   WHERE substr(c.ref, 1, 6) = 'asset:'
+			   UNION ALL
+			   SELECT c.page_id, c.ord, a.object_key, a.width, a.height
+			   FROM candidates c JOIN link_previews lp ON lp.url = substr(c.ref, 5)
+			   JOIN assets a ON a.id = lp.image_asset_id AND a.status = 'ready'
+			   WHERE substr(c.ref, 1, 4) = 'url:'
+			 ),
+			 first_image AS (
+			   SELECT page_id, min(ord) AS ord, object_key, width, height FROM images GROUP BY page_id
+			 )
+			 SELECT l.id, l.title, l.revision, l.daily_date, l.updated_at, l.head,
+			   f.object_key AS thumb_key, f.width AS thumb_width, f.height AS thumb_height
+			 FROM list l LEFT JOIN first_image f ON f.page_id = l.id
+			 ORDER BY l.updated_at DESC, l.id DESC`
 		)
 		.bind(...(after ? [after.updatedAt, after.id, limit + 1] : [limit + 1]))
 		.all<{
@@ -463,8 +503,13 @@ export async function listPages(
 			revision: number;
 			daily_date: string | null;
 			updated_at: number;
+			head: string;
+			thumb_key: string | null;
+			thumb_width: number | null;
+			thumb_height: number | null;
 		}>();
 
+	const base = options.mediaBaseUrl ?? '/media';
 	const page = results.slice(0, limit);
 	const last = page.at(-1);
 	return {
@@ -473,7 +518,12 @@ export async function listPages(
 			title: r.title,
 			revision: r.revision,
 			dailyDate: r.daily_date,
-			updatedAt: toIso(r.updated_at)
+			updatedAt: toIso(r.updated_at),
+			thumbnail:
+				r.thumb_key && r.thumb_width && r.thumb_height
+					? { url: mediaUrl(base, r.thumb_key), width: r.thumb_width, height: r.thumb_height }
+					: null,
+			excerpt: plainLines(parse(r.head), LIST_EXCERPT_CHARS)
 		})),
 		nextCursor: results.length > limit && last ? encodeCursor(last.updated_at, last.id) : null
 	};

@@ -136,12 +136,22 @@ export interface OwnerPageDto extends PageDto {
 	deletedAt: string | null;
 }
 
+export interface ImageRefDto {
+	url: string;
+	width: number;
+	height: number;
+}
+
 export interface PageSummaryDto {
 	id: string;
 	title: string;
 	revision: number;
 	dailyDate: string | null;
 	updatedAt: string;
+	/** First image of the page: an uploaded image, or a link card / video thumbnail (ADR 0014). */
+	thumbnail: ImageRefDto | null;
+	/** Visible text of the first lines, for cards without a thumbnail. */
+	excerpt: string[];
 }
 
 export interface PageListDto {

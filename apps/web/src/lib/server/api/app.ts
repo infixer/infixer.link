@@ -239,6 +239,7 @@ export function createApi(deps: ApiDeps) {
 		.get('/pages', async (c) => {
 			const limit = c.req.query('limit');
 			const result = await pages.listPages(db, {
+				mediaBaseUrl: deps.mediaBaseUrl,
 				cursor: c.req.query('cursor') || undefined,
 				limit: limit ? Number.parseInt(limit, 10) || undefined : undefined
 			});

@@ -8,7 +8,10 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ url }) => {
 	const timeZone = env.SITE_TIME_ZONE ?? DEFAULT_TIME_ZONE;
 	try {
-		const list = await listPages(env.DB, { cursor: url.searchParams.get('cursor') ?? undefined });
+		const list = await listPages(env.DB, {
+			cursor: url.searchParams.get('cursor') ?? undefined,
+			mediaBaseUrl: env.MEDIA_BASE_URL
+		});
 		return { today: formatDailyDate(today(timeZone)), timeZone, ...list };
 	} catch (e) {
 		if (e instanceof ApiError && e.code === 'bad_request')
