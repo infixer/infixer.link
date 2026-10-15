@@ -30,6 +30,7 @@
 | `pnpm --filter web test:e2e` | 12 passed（3 projects × 4） |
 | `pnpm --filter web check` / `lint` | 0 errors |
 | `pnpm --filter web build` | 成功 |
+| GitHub Actions（PR #1） | 全ステップ成功（type check → lint → unit → workers → E2E） |
 
 ### 判明した設計への影響（詳細は ADR）
 
@@ -44,7 +45,6 @@
   - 本番 D1 での trigger / FTS5 trigram の挙動
   - Workers 実環境の CPU time（Free プラン 10ms で足りるか）
   - HTTPS 実ドメインでの実ブラウザのパスキー登録・認証
-- GitHub Actions 上での CI 実行（push 後に確認）
 - 実機（iPhone Safari / Android Chrome）での表示
 
 ### staging 準備手順（未実行・要承認）
