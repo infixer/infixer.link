@@ -19,7 +19,9 @@
 		// production: RP_ID "infixer.link", APP_ORIGINS "https://infixer.link"
 		// staging:    RP_ID "staging.infixer.link", APP_ORIGINS "https://staging.infixer.link"
 		"RP_ID": "localhost",
-		"APP_ORIGINS": "http://localhost:5173,http://localhost:4173"
+		"APP_ORIGINS": "http://localhost:5173,http://localhost:4173",
+		// Link previews may fetch http://localhost only in local development / E2E.
+		"LINK_PREVIEW_ALLOW_LOCAL": "true"
 	},
 	// Local-only placeholders. Real resource IDs are created per environment
 	// (staging/production) with explicit user approval; never guess them.

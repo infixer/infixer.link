@@ -1,0 +1,42 @@
+<!--
+	SSR read view of link-text-v1 (ADR 0009). All text is escaped by Svelte; only
+	http(s)/mailto URLs become links. Classes come from lib/content/classes.ts.
+-->
+<script lang="ts">
+	import { parse } from '@infixer-link/content';
+	import type { LinkPreviewDto, PageRefDto } from '@infixer-link/contracts';
+	import { lineClass } from './classes.ts';
+	import Inlines from './Inlines.svelte';
+
+	interface Props {
+		source: string;
+		names: Record<string, PageRefDto>;
+		previews: Record<string, LinkPreviewDto>;
+	}
+
+	let { source, names, previews }: Props = $props();
+	let parsed = $derived(parse(source));
+	const NBSP = '\u00a0'; // keeps empty lines one line tall
+</script>
+
+<!-- eslint-disable svelte/no-navigation-without-resolve -- external card URLs, not app routes -->
+<div class="rendered" data-testid="page-source">
+	{#each parsed.lines as line (line.index)}
+		{@const card = line.url ? previews[line.url] : undefined}
+		<div class={lineClass(line)} data-n={line.ordered}>
+			{#if line.kind === 'blank' || line.kind === 'hr'}{NBSP}{:else if line.kind === 'code' || line.kind === 'code-close'}{line.text.slice(
+					line.contentFrom
+				) || NBSP}{:else if line.kind === 'code-open'}<span class="code-label"
+					>{line.lang ?? ''}</span
+				>{NBSP}{:else if card?.ok && card.title}<a
+					class="card"
+					href={line.url}
+					target="_blank"
+					rel="noopener nofollow ugc"
+					><span class="card-title">{card.title}</span>{#if card.description}<span class="card-desc"
+							>{card.description}</span
+						>{/if}<span class="card-host">{card.siteName ?? card.host}</span></a
+				>{:else}<Inlines nodes={line.inlines} {names} />{/if}
+		</div>
+	{/each}
+</div>

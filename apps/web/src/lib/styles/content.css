@@ -1,0 +1,248 @@
+/*
+ * Lines must never use margins: CodeMirror measures line boxes without them and would
+ * misplace the caret. Use padding instead.
+ *
+ * Shared look of link-text-v1 content (ADR 0009). Used by the SSR read view
+ * (lib/content/Rendered.svelte) and by the editor's decorations (lib/editor/live.ts) so
+ * both look identical and switching between them does not move anything.
+ * No inline style attributes anywhere: the CSP blocks them.
+ */
+.ln {
+	position: relative;
+	min-height: 1.7em;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* CodeMirror pads .cm-line by default; the shared rules below must win in both views. */
+.cm-editor .cm-content .cm-line {
+	padding: 0;
+}
+
+/* Indentation levels (Cosense spaces or Markdown list nesting). */
+:is(.rendered, .cm-content) .ln.lv1 {
+	padding-left: 1.5em;
+}
+:is(.rendered, .cm-content) .ln.lv2 {
+	padding-left: 3em;
+}
+:is(.rendered, .cm-content) .ln.lv3 {
+	padding-left: 4.5em;
+}
+:is(.rendered, .cm-content) .ln.lv4 {
+	padding-left: 6em;
+}
+:is(.rendered, .cm-content) .ln.lv5 {
+	padding-left: 7.5em;
+}
+:is(.rendered, .cm-content) .ln.lv6 {
+	padding-left: 9em;
+}
+:is(.rendered, .cm-content) .ln.lv7 {
+	padding-left: 10.5em;
+}
+:is(.rendered, .cm-content) .ln.lv8 {
+	padding-left: 12em;
+}
+
+.ln.bul::before,
+.ln.num::before {
+	position: absolute;
+	width: 1.5em;
+	margin-left: -1.5em;
+	text-align: center;
+	color: var(--color-muted);
+}
+.ln.bul::before {
+	content: '•';
+}
+.ln.num::before {
+	content: attr(data-n) '.';
+	font-size: 0.9em;
+}
+
+.ln.h1 {
+	font-size: 1.5em;
+	font-weight: 700;
+	line-height: 1.4;
+	padding-top: 0.3em;
+}
+.ln.h2 {
+	font-size: 1.3em;
+	font-weight: 700;
+	line-height: 1.4;
+	padding-top: 0.2em;
+}
+.ln.h3 {
+	font-size: 1.15em;
+	font-weight: 700;
+}
+.ln.h4,
+.ln.h5,
+.ln.h6 {
+	font-weight: 700;
+}
+
+:is(.rendered, .cm-content) .ln.quote {
+	border-left: 4px solid var(--color-quote-border);
+	background: var(--color-quote-bg);
+	padding-left: 0.9em;
+	font-style: italic;
+}
+
+.ln.hr {
+	height: 1.7em;
+	background: linear-gradient(var(--color-border), var(--color-border)) center / 100% 1px no-repeat;
+}
+
+:is(.rendered, .cm-content) :is(.ln.code, .ln.code-open, .ln.code-close) {
+	font-family: var(--font-mono);
+	font-size: 0.875em;
+	background: var(--color-block-code-bg);
+	color: var(--color-block-code-text);
+	white-space: pre;
+	overflow-x: auto;
+	padding-left: 0.75em;
+	padding-right: 0.75em;
+}
+.ln.code-open {
+	border-radius: 4px 4px 0 0;
+	color: var(--color-muted);
+}
+.ln.code-close {
+	border-radius: 0 0 4px 4px;
+	color: var(--color-muted);
+}
+.code-label {
+	font-size: 0.8125em;
+}
+
+/* Inline: links read like infixer.net (text colour + underline). */
+.lk,
+.tag,
+.ext {
+	color: var(--color-link);
+	text-decoration: underline;
+	text-underline-offset: 0.15em;
+	cursor: pointer;
+}
+.lk:hover,
+.tag:hover,
+.ext:hover {
+	text-decoration: none;
+}
+/* Pages that do not exist yet: muted, dotted underline. */
+.lk.missing,
+.tag.missing {
+	color: var(--color-missing);
+	text-decoration-style: dotted;
+}
+.ic {
+	font-family: var(--font-mono);
+	font-size: 0.875em;
+	background: var(--color-code-bg);
+	color: var(--color-code-text);
+	border-radius: 0.3em;
+	padding: 0.1em 0.35em;
+}
+.math {
+	font-family: var(--font-mono);
+}
+.w2 {
+	font-size: 1.2em;
+}
+.w3 {
+	font-size: 1.4em;
+}
+.asset {
+	color: var(--color-muted);
+}
+.mk {
+	color: var(--color-muted);
+}
+
+/* Link card (ADR 0010). Text only until Phase 4 stores images in R2. */
+.card {
+	display: block;
+	margin: 0.4em 0;
+	padding: 0.9em 1.1em;
+	border: 1px solid var(--color-border);
+	border-radius: 0.5rem;
+	background: var(--color-surface);
+	color: inherit;
+	text-decoration: none;
+	white-space: normal;
+	line-height: 1.5;
+	max-width: 40rem;
+	transition: box-shadow 0.2s;
+}
+.card:hover {
+	box-shadow: 0 4px 12px oklch(0% 0 0 / 12%);
+	text-decoration: none;
+}
+.card-title {
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	font-weight: 700;
+	margin-bottom: 0.25em;
+}
+.card-desc {
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	color: var(--color-muted);
+	font-size: 0.875em;
+}
+.card-host {
+	display: block;
+	margin-top: 0.4em;
+	color: var(--color-muted);
+	font-size: 0.75em;
+}
+
+/* Editor marks (lib/editor/live.ts) matching <strong>/<em>/<s>/<u> in the read view. */
+.b {
+	font-weight: 700;
+}
+.i {
+	font-style: italic;
+}
+.st {
+	text-decoration: line-through;
+}
+.u {
+	text-decoration: underline;
+}
+
+/* The editor shows its own caret; no focus ring around the whole document. */
+.cm-editor .cm-content:focus-visible {
+	outline: none;
+}
+
+/* Editor caret and selection: visible in both themes (CodeMirror draws its own caret). */
+.cm-editor .cm-cursor,
+.cm-editor .cm-dropCursor {
+	border-left: 2px solid var(--color-caret);
+	margin-left: -1px;
+}
+.cm-editor .cm-selectionBackground,
+.cm-editor.cm-focused .cm-selectionBackground,
+.cm-editor .cm-content ::selection {
+	background: var(--color-selection);
+}
+
+/* Completion popup follows the theme. */
+.cm-tooltip.cm-tooltip-autocomplete {
+	background: var(--color-bg);
+	color: var(--color-text);
+	border: 1px solid var(--color-border);
+	border-radius: 0.375rem;
+	box-shadow: 0 4px 12px oklch(0% 0 0 / 15%);
+}
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+	background: var(--color-selection);
+	color: var(--color-text);
+}

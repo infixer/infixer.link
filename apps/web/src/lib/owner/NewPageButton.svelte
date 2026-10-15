@@ -59,7 +59,7 @@
 		padding: 0 var(--space-2);
 		border: none;
 		background: none;
-		color: var(--color-link);
+		color: var(--color-header-text);
 		font: inherit;
 		cursor: pointer;
 	}

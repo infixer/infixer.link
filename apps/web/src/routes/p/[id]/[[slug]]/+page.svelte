@@ -8,11 +8,12 @@
 	import { page as appPage } from '$app/state';
 	import { invalidateAll, replaceState } from '$app/navigation';
 	import { OwnerSession, ownerFetch } from '#lib/owner/csrf.svelte.ts';
+	import Rendered from '#lib/content/Rendered.svelte';
+	import Related from '#lib/content/Related.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
-	let lines = $derived(data.page.source.split('\n'));
 	let owner = $state<OwnerSession | null>(null);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- lazily imported component
 	let Editor = $state<Component<any> | null>(null);
@@ -70,6 +71,11 @@
 
 <svelte:head>
 	<title>{data.page.title} - infixer.link</title>
+	<meta name="description" content={data.description} />
+	<meta property="og:type" content="article" />
+	<meta property="og:title" content={data.page.title} />
+	<meta property="og:description" content={data.description} />
+	<meta property="og:site_name" content="infixer.link" />
 </svelte:head>
 
 {#if deletedRevision !== null}
@@ -85,10 +91,8 @@
 			<p class="meta">
 				更新 <time datetime={data.page.updatedAt}>{data.page.updatedAt.slice(0, 10)}</time>
 			</p>
-			<div class="source" data-testid="page-source">
-				{#each lines as line, i (i)}
-					<div class="line">{line || ' '}</div>
-				{/each}
+			<div class="source">
+				<Rendered source={data.page.source} names={data.names} previews={data.previews} />
 			</div>
 		</article>
 		{#if owner && Editor}
@@ -98,6 +102,8 @@
 						pageId={data.page.id}
 						csrf={owner}
 						initial={data.page}
+						names={data.names}
+						previews={data.previews}
 						{focus}
 						onready={ready}
 						ondeleted={deleted}
@@ -106,6 +112,7 @@
 			{/key}
 		{/if}
 	</div>
+	<Related related={data.related} />
 {/if}
 
 <style>
@@ -138,11 +145,6 @@
 
 	.source {
 		min-height: 6rem;
-	}
-
-	.line {
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
 	}
 
 	button {

@@ -17,7 +17,12 @@ export default defineConfig({
 				directives: {
 					'default-src': ['self'],
 					'script-src': ['self'],
-					'style-src': ['self'],
+					// Only SvelteKit's route announcer style attribute is allowed (exact hash).
+					'style-src': [
+						'self',
+						'unsafe-hashes',
+						'sha256-S8qMpvofolR8Mpjy4kQvEm7m1q8clzU4dfDH0AmvZjo='
+					],
 					'img-src': ['self', 'data:'],
 					'connect-src': ['self'],
 					'font-src': ['self'],

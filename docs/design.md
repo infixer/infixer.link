@@ -4,6 +4,8 @@
 > - ドメインは `infixer.link`（apex）。本文中の `example.net` → `infixer.link`、`media.example.net` → `media.infixer.link`、staging は `staging.infixer.link`（[ADR 0004](adr/0004-domain-infixer-link.md)）。
 > - 名称は「Personal Garden」をやめ **infixer.link** に統一（[ADR 0005](adr/0005-naming.md)）。本文中の `garden-text-v1` 等は置換済み。
 > - JSON API は **Hono** で実装する（同一 Worker 内。[ADR 0006](adr/0006-hono-api.md)）。§1.2・§2 の「API フレームワークを重ねない」はこれで置き換え。
+> - 本文の記法は **Cosense のリンク ＋ Markdown の装飾** の併用（[ADR 0009](adr/0009-hybrid-notation.md)）。§6.1 の記法一覧はこれで置き換え。
+> - URL だけの行は**リンクカード**として表示する（[ADR 0010](adr/0010-link-cards.md)）。
 > - Phase 0 の実証結果と設計への影響は [`implementation-status.md`](implementation-status.md) と [`adr/`](adr/) を参照。
 > - 以下は受領した設計本文（「次のプロンプト例」のみ省略、他は変更なし）。
 

@@ -38,6 +38,14 @@
 | Worker bundle | Free 3MiB / Paid 10MiB（圧縮後） | 1552.6KiB / gzip **299.4KiB** | |
 | 保存 API p95 / LCP / CPU time | — | 未計測 | staging 作成後に計測 |
 
+## Phase 3（2026-10-15）
+
+| 対象 | 予算 | 実測 | 備考 |
+|---|---|---|---|
+| 公開初回JS（`/`） | gzip ≤ 50KiB | **40.0KiB** | |
+| 編集時JS | gzip ≤ 250KiB | **151.2KiB** | 見たまま表示、autocomplete、language、パーサーを含む |
+| 入力から描画（10,499 文字） | p95 ≤ 50ms | **p95 15.2ms** | 見たまま表示の decoration を毎回すべて作り直した状態で計測。表示範囲だけに絞る最適化はしていない |
+
 ### メモ
 
 - 公開初回 JS の大半（約 28KiB）は SvelteKit のクライアントルーター／hydration。公開ページを `csr = false` にすれば 0 にできるが、同一 URL 編集（設計 §9.1）でクライアント側の session 照会と遅延読み込みが必要なため、Phase 2 で判断する。

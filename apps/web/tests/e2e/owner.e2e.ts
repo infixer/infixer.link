@@ -47,7 +47,11 @@ test('owner-created page renders publicly without owner data or editor code', as
 	await anon.getByRole('link', { name: title }).click();
 	await expect(anon).toHaveURL(new RegExp(`/p/${pageId}/`));
 	await expect(anon.locator('h1')).toHaveText(title);
-	await expect(anon.getByTestId('page-source')).toContainText('[読書] の続き');
+	await expect(anon.getByTestId('page-source')).toContainText('読書 の続き');
+	await expect(anon.getByTestId('page-source').getByRole('link', { name: '読書' })).toHaveAttribute(
+		'href',
+		`/t/${encodeURIComponent('読書')}`
+	);
 	await anon.waitForLoadState('networkidle');
 	await expect(anon.getByTestId('editor')).toHaveCount(0);
 	expect(scripts.some((s) => s.includes('cm-content'))).toBe(false); // no CodeMirror for visitors

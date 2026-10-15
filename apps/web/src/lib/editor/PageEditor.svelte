@@ -7,10 +7,17 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { resolve } from '$app/paths';
+	import { goto } from '$app/navigation';
 	import { Annotation, EditorSelection, EditorState } from '@codemirror/state';
 	import { EditorView, keymap, drawSelection } from '@codemirror/view';
 	import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-	import type { OwnerPageDto } from '@infixer-link/contracts';
+	import type {
+		LinkPreviewDto,
+		OwnerPageDto,
+		PageRefDto,
+		TitleSuggestionDto
+	} from '@infixer-link/contracts';
+	import { livePreview, type LiveData } from './live.ts';
 	import { Autosave, STATE_LABEL, restore, type SaveState, type ServerPage } from './autosave.ts';
 	import { idbDraftStore } from './draft-store.ts';
 	import { httpTransport, type CsrfSource } from './transport.ts';
@@ -22,11 +29,76 @@
 		initial: ServerPage & { updatedAt: string };
 		/** Where to put the cursor right away (new or just-created pages). */
 		focus?: 'title' | 'body' | null;
+		/** Link names and card previews resolved on the server for the initial content. */
+		names: Record<string, PageRefDto>;
+		previews: Record<string, LinkPreviewDto>;
 		onready: () => void;
 		ondeleted: (revision: number) => void;
 	}
 
-	let { pageId, csrf, initial, focus = null, onready, ondeleted }: Props = $props();
+	let {
+		pageId,
+		csrf,
+		initial,
+		focus = null,
+		names,
+		previews,
+		onready,
+		ondeleted
+	}: Props = $props();
+
+	async function postJson<T>(path: string, body: unknown): Promise<T | null> {
+		const send = (token: string) =>
+			fetch(path, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', 'x-csrf-token': token },
+				credentials: 'same-origin',
+				body: JSON.stringify(body)
+			});
+		let res = await send(csrf.get());
+		if (res.status === 403) {
+			const token = await csrf.refresh();
+			if (token) res = await send(token);
+		}
+		return res.ok ? ((await res.json()) as T) : null;
+	}
+
+	async function fetchMissing(missing: {
+		names: string[];
+		urls: string[];
+	}): Promise<Partial<LiveData>> {
+		const [resolved, cards] = await Promise.all([
+			missing.names.length
+				? postJson<{ pages: Record<string, PageRefDto> }>('/api/owner/v1/names/resolve', {
+						names: missing.names
+					})
+				: null,
+			missing.urls.length
+				? postJson<{ previews: Record<string, LinkPreviewDto> }>('/api/owner/v1/link-previews', {
+						urls: missing.urls.slice(0, 20)
+					})
+				: null
+		]);
+		return { names: resolved?.pages, previews: cards?.previews };
+	}
+
+	async function suggest(query: string, signal: AbortSignal): Promise<TitleSuggestionDto[]> {
+		const res = await fetch(`/api/owner/v1/titles?q=${encodeURIComponent(query)}&limit=12`, {
+			credentials: 'same-origin',
+			signal
+		});
+		return res.ok ? ((await res.json()) as { titles: TitleSuggestionDto[] }).titles : [];
+	}
+
+	async function navigate(href: string, external: boolean) {
+		if (external) {
+			window.open(href, '_blank', 'noopener');
+			return;
+		}
+		await auto?.flushLocal();
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- internal /p/ or /t/ path
+		await goto(href);
+	}
 
 	/** Marks programmatic document replacements so they are not treated as user edits. */
 	const external = Annotation.define<boolean>();
@@ -93,6 +165,7 @@
 					history(),
 					drawSelection(),
 					EditorView.lineWrapping,
+					livePreview({ data: { names, previews }, navigate, fetchMissing, suggest }),
 					keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
 					EditorView.contentAttributes.of({ 'aria-label': '本文', spellcheck: 'false' }),
 					EditorView.cspNonce.of(
@@ -104,7 +177,14 @@
 						'&.cm-focused': { outline: 'none' },
 						'.cm-scroller': { fontFamily: 'inherit', lineHeight: 'inherit', overflow: 'visible' },
 						'.cm-content': { padding: '0', caretColor: 'currentColor', minHeight: '6rem' },
-						'.cm-line': { padding: '0' }
+						'.cm-line': { padding: '0' },
+						// Visible caret / selection in both themes (CodeMirror's default caret is black).
+						'.cm-cursor, .cm-dropCursor': {
+							borderLeftColor: 'var(--color-caret)',
+							borderLeftWidth: '2px'
+						},
+						'&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground':
+							{ background: 'var(--color-selection)' }
 					}),
 					EditorView.updateListener.of((update) => {
 						if (!update.docChanged) return;
@@ -344,7 +424,7 @@
 	.status[data-state='quota-error'],
 	.status[data-state='invalid'],
 	.status[data-state='too-large'] {
-		color: #c62828;
+		color: var(--color-danger);
 	}
 
 	.link {
