@@ -13,7 +13,8 @@ export const fallback: RequestHandler = ({ request }) => {
 		allowLocalPreviews: env.LINK_PREVIEW_ALLOW_LOCAL === 'true',
 		pending: env.PENDING,
 		media: env.MEDIA,
-		mediaBaseUrl: env.MEDIA_BASE_URL
+		mediaBaseUrl: env.MEDIA_BASE_URL,
+		timeZone: env.SITE_TIME_ZONE
 	});
 	return api.fetch(request);
 };

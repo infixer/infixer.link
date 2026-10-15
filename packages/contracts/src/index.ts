@@ -335,4 +335,78 @@ export interface SearchDto {
 	nextOffset: number | null;
 }
 
+// --- CLI tokens and export (Phase 7, ADR 0016) ------------------------------
+
+export const TOKEN_SCOPES = ['read', 'write', 'backup'] as const;
+export type TokenScope = (typeof TOKEN_SCOPES)[number];
+
+export const CreateTokenRequest = v.strictObject({
+	label: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(60)),
+	scopes: v.pipe(
+		v.array(v.picklist(TOKEN_SCOPES)),
+		v.minLength(1),
+		v.check((s) => new Set(s).size === s.length, 'scopes must be unique')
+	),
+	/** Days until expiry (1–365). Tokens always expire. */
+	expiresInDays: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(365)), 90)
+});
+export type CreateTokenRequest = v.InferOutput<typeof CreateTokenRequest>;
+
+export interface TokenDto {
+	id: string;
+	label: string;
+	scopes: TokenScope[];
+	createdAt: string;
+	expiresAt: string;
+	lastUsedAt: string | null;
+	revoked: boolean;
+}
+
+/** Returned once at creation; the token itself is never shown again. */
+export interface IssuedTokenDto extends TokenDto {
+	token: string;
+}
+
+export interface ExportStartDto {
+	/** Change-feed position the export is pinned to: later edits are not included. */
+	highWater: number;
+	pages: number;
+	assets: number;
+}
+
+export interface ExportPageDto {
+	id: string;
+	title: string;
+	format: typeof FORMAT;
+	revision: number;
+	source: string;
+	dailyDate: string | null;
+	createdAt: string;
+	updatedAt: string;
+	/** Earlier names that still resolve to this page. */
+	aliases: string[];
+}
+
+export interface ExportPagesDto {
+	pages: ExportPageDto[];
+	nextCursor: string | null;
+}
+
+export interface ExportAssetDto {
+	id: string;
+	mime: string;
+	bytes: number;
+	width: number;
+	height: number;
+	sha256: string;
+	/** Public URL of the immutable original (may be relative to the site, e.g. /media/…). */
+	url: string;
+	source: 'upload' | 'link-preview';
+}
+
+export interface ExportAssetsDto {
+	assets: ExportAssetDto[];
+	nextCursor: string | null;
+}
+
 export { v };

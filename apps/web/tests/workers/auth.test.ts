@@ -234,7 +234,7 @@ describe('owner API boundary', () => {
 					headers: { authorization: 'Bearer x' }
 				})
 			).status
-		).toBe(401);
+		).toBe(400); // cookie and Bearer together are rejected as ambiguous (ADR 0016)
 		expect(
 			(await owner.json('/api/owner/v1/pages', { body: newPage(), origin: null })).status
 		).toBe(403);

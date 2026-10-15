@@ -25,12 +25,16 @@ import {
 	SetupOptionsRequest,
 	UpdatePageRequest,
 	NamesResolveRequest,
-	type SessionDto
+	CreateTokenRequest,
+	type SessionDto,
+	type TokenScope
 } from '@infixer-link/contracts';
-import { temporalSource } from '@infixer-link/time';
+import { Temporal, formatDailyDate, temporalSource, today } from '@infixer-link/time';
 import { AUTH_TIMING, type AuthConfig } from '../config';
 import { ApiError, errorResponse, toIso } from '../http';
 import * as auth from '../auth/service';
+import * as tokens from '../auth/tokens';
+import * as exporter from '../pages/export';
 import * as pages from '../pages/service';
 import * as graph from '../pages/graph';
 import { searchPages } from '../pages/search';
@@ -51,6 +55,8 @@ export interface ApiDeps {
 	media?: R2Bucket;
 	/** Public base URL for MEDIA objects ("/media" locally). */
 	mediaBaseUrl?: string;
+	/** Site time zone for "today" (SITE_TIME_ZONE). */
+	timeZone?: string;
 }
 
 type AppEnv = {
@@ -58,8 +64,22 @@ type AppEnv = {
 		requestId: string;
 		now: number;
 		session: auth.SessionRecord | null;
+		/** Set instead of `session` for CLI requests with a Bearer token (ADR 0016). */
+		token: tokens.TokenRecord | null;
 	};
 };
+
+/**
+ * Scope a Bearer token needs for an owner route; null = never allowed with a token
+ * (passkeys, sessions and tokens are managed from the browser only).
+ */
+function bearerScope(method: string, path: string): TokenScope | null {
+	const p = path.replace(/^\/api\/owner\/v1/, '');
+	if (/^\/(passkeys|sessions|tokens)(\/|$)/.test(p)) return null;
+	if (p.startsWith('/export/')) return method === 'GET' ? 'backup' : null;
+	if (method === 'GET' || (method === 'POST' && p === '/names/resolve')) return 'read';
+	return 'write';
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const AUTH_WINDOW_MS = 10 * 60 * 1000;
@@ -138,14 +158,55 @@ export function createApi(deps: ApiDeps) {
 		await next();
 	};
 
-	/** Resolves the cookie session. Bearer tokens arrive in Phase 7; mixing is rejected. */
+	/** Resolves the cookie session. Bearer tokens are only accepted on owner routes (ownerAuth). */
 	const loadSession: MiddlewareHandler<AppEnv> = async (c, next) => {
 		if (c.req.header('authorization')) {
-			throw new ApiError('unauthenticated', 'Bearer tokens are not supported yet');
+			throw new ApiError('unauthenticated', 'Bearer tokens are not accepted here');
 		}
 		c.set('session', await auth.getSession(db, getCookie(c, config.sessionCookie), c.get('now')));
 		await next();
 	};
+
+	/**
+	 * Owner routes accept either the browser session (cookie + CSRF + Origin) or a CLI
+	 * Bearer token (no cookie, no CSRF; the token's scopes decide). Both at once are
+	 * rejected as ambiguous (design §9.6).
+	 */
+	const ownerAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+		const header = c.req.header('authorization');
+		if (!header) {
+			await sameOrigin(c, async () => {
+				await loadSession(c, async () => {
+					await requireOwner(c, next);
+				});
+			});
+			return;
+		}
+		if (getCookie(c, config.sessionCookie)) {
+			throw new ApiError('bad_request', 'Send either a session cookie or a bearer token, not both');
+		}
+		if (!config.origins.includes(new URL(c.req.url).origin)) {
+			throw new ApiError('forbidden', 'Host not allowed');
+		}
+		const match = /^Bearer\s+(\S+)$/i.exec(header);
+		const token = match ? await tokens.verifyToken(db, match[1]!, c.get('now')) : null;
+		if (!token) throw new ApiError('unauthenticated', 'Invalid or expired token');
+		const scope = bearerScope(c.req.method, c.req.path);
+		if (!scope || !token.scopes.includes(scope)) {
+			throw new ApiError(
+				'forbidden',
+				scope ? `This token needs the "${scope}" scope` : 'Not available with a token'
+			);
+		}
+		c.set('token', token);
+		await next();
+	};
+
+	/** "today" in the site time zone at the request time, or the date as given. */
+	const dailyDate = (param: string, now: number) =>
+		param === 'today'
+			? formatDailyDate(today(deps.timeZone, Temporal.Instant.fromEpochMilliseconds(now)))
+			: param;
 
 	const requireOwner: MiddlewareHandler<AppEnv> = async (c, next) => {
 		const session = c.get('session');
@@ -175,6 +236,7 @@ export function createApi(deps: ApiDeps) {
 		c.set('requestId', requestId);
 		c.set('now', clock());
 		c.set('session', null);
+		c.set('token', null);
 		await next();
 		c.header('x-request-id', requestId);
 		if (!c.res.headers.has('cache-control')) c.header('cache-control', 'no-store');
@@ -377,15 +439,21 @@ export function createApi(deps: ApiDeps) {
 	// --- owner ---------------------------------------------------------------
 
 	const ownerApi = new Hono<AppEnv>()
-		.use(sameOrigin, loadSession, requireOwner)
+		.use(ownerAuth)
 		.post('/pages', ...json(CreatePageRequest), async (c) => {
 			const result = await pages.createPage(db, c.req.valid('json'), c.get('now'));
 			return c.json(result, result.replayed ? 200 : 201);
 		})
+		.get('/daily/:date', async (c) => {
+			const date = dailyDate(c.req.param('date'), c.get('now'));
+			const found = await pages.findDaily(db, date);
+			if (!found) throw new ApiError('not_found', `No daily page for ${date}`);
+			return c.json({ pageId: found.id, title: found.title, dailyDate: date });
+		})
 		.post('/daily/:date', ...json(DailyPageRequest), async (c) => {
 			const result = await pages.getOrCreateDaily(
 				db,
-				c.req.param('date'),
+				dailyDate(c.req.param('date'), c.get('now')),
 				c.req.valid('json').mutationId,
 				c.get('now')
 			);
@@ -457,6 +525,36 @@ export function createApi(deps: ApiDeps) {
 			const found = await pages.getRevision(db, c.req.param('id'), revision);
 			if (!found) throw new ApiError('not_found', 'Revision not found');
 			return c.json(found);
+		})
+		.get('/export/start', async (c) => c.json(await exporter.startExport(db)))
+		.get('/export/pages', async (c) => {
+			const until = Number(c.req.query('until'));
+			if (!Number.isSafeInteger(until) || until < 0)
+				throw new ApiError('bad_request', 'until is required (from /export/start)');
+			return c.json(
+				await exporter.exportPages(db, {
+					until,
+					cursor: c.req.query('cursor') || undefined,
+					limit: Number.parseInt(c.req.query('limit') ?? '', 10) || undefined
+				})
+			);
+		})
+		.get('/export/assets', async (c) =>
+			c.json(
+				await exporter.exportAssets(db, {
+					cursor: c.req.query('cursor') || undefined,
+					limit: Number.parseInt(c.req.query('limit') ?? '', 10) || undefined,
+					mediaBaseUrl: deps.mediaBaseUrl ?? '/media'
+				})
+			)
+		)
+		.get('/tokens', async (c) => c.json({ tokens: await tokens.listTokens(db) }))
+		.post('/tokens', ...json(CreateTokenRequest), async (c) =>
+			c.json(await tokens.issueToken(db, c.get('session')!, c.req.valid('json'), c.get('now')), 201)
+		)
+		.delete('/tokens/:id', async (c) => {
+			await tokens.revokeToken(db, c.req.param('id'), c.get('now'));
+			return c.json({ ok: true as const });
 		})
 		.get('/passkeys', async (c) =>
 			c.json({ passkeys: await auth.listPasskeys(db, c.get('session')!) })
