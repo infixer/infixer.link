@@ -13,6 +13,7 @@
 
 <header class="site">
 	<a href={resolve('/')} class="brand">infixer.link</a>
+	<a href={resolve('/today')} class="today" data-sveltekit-preload-data="off">今日</a>
 </header>
 
 <main>
@@ -26,10 +27,20 @@
 		padding: var(--space-3) var(--space-3) 0;
 	}
 
+	.site {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
 	.brand {
 		color: var(--color-text);
 		font-weight: 700;
 		text-decoration: none;
+	}
+
+	.today {
+		padding: var(--space-2);
 	}
 
 	main {
