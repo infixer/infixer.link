@@ -450,6 +450,14 @@ export function createApi(deps: ApiDeps) {
 			if (!revisions) throw new ApiError('not_found', 'Page not found');
 			return c.json({ revisions });
 		})
+		.get('/pages/:id/revisions/:revision', pageId, async (c) => {
+			const revision = Number(c.req.param('revision'));
+			if (!Number.isSafeInteger(revision) || revision < 1)
+				throw new ApiError('not_found', 'Revision not found');
+			const found = await pages.getRevision(db, c.req.param('id'), revision);
+			if (!found) throw new ApiError('not_found', 'Revision not found');
+			return c.json(found);
+		})
 		.get('/passkeys', async (c) =>
 			c.json({ passkeys: await auth.listPasskeys(db, c.get('session')!) })
 		)

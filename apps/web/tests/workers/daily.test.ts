@@ -72,3 +72,35 @@ describe('daily pages', () => {
 		expect((await daily('2026-10-18')).body.code).toBe('name_conflict');
 	});
 });
+
+describe('daily pages created on another device first (Phase 6)', () => {
+	it('names the existing page when an offline-created daily page collides', async () => {
+		const existing = await daily('2026-10-16');
+		const offlineId = crypto.randomUUID();
+		const res = await owner.json('/api/owner/v1/pages', {
+			body: {
+				id: offlineId,
+				...newPage({ title: '2026-10-16 (端末)', source: 'オフラインで書いた' }),
+				dailyDate: '2026-10-16'
+			}
+		});
+		expect(res.status).toBe(409);
+		expect(res.body).toMatchObject({
+			code: 'daily_conflict',
+			details: { pageId: existing.body.pageId }
+		});
+		const row = await env.DB.prepare('SELECT count(*) AS n FROM pages WHERE id = ?')
+			.bind(offlineId)
+			.first<{ n: number }>();
+		expect(row?.n).toBe(0);
+	});
+
+	it('replays an offline create whose response was lost, with the same id', async () => {
+		const id = crypto.randomUUID();
+		const body = { id, ...newPage({ title: '2026-10-17', source: 'x' }), dailyDate: '2026-10-17' };
+		expect((await owner.json('/api/owner/v1/pages', { body })).status).toBe(201);
+		const again = await owner.json('/api/owner/v1/pages', { body });
+		expect(again.status).toBe(200);
+		expect(again.body).toMatchObject({ pageId: id, replayed: true, revision: 1 });
+	});
+});
