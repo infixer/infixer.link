@@ -1,30 +1,77 @@
+/*
+ * Design tokens, aligned with infixer.net (ADR 0011).
+ * Theme: `html.light` / `html.dark` set before first paint by the inline script in app.html
+ * (light / dark / follow system). Without JavaScript the media query follows the OS.
+ */
 :root {
-	--font-body: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
-	--font-mono: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-	--color-bg: #fbfbf9;
-	--color-text: #1f2328;
-	--color-muted: #656d76;
-	--color-link: #0b62c4;
-	--color-border: #d8dee4;
-	--color-code-bg: #f1f3f5;
-	--color-missing: #b0572a;
+	--font-body:
+		system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', 'Hiragino Kaku Gothic ProN',
+		sans-serif;
+	--font-mono: ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
 	--space-1: 0.25rem;
 	--space-2: 0.5rem;
 	--space-3: 1rem;
 	--space-4: 1.5rem;
-	--content-width: 44rem;
-	color-scheme: light dark;
+	--content-width: 48rem;
+	--header-height: 3.5rem;
+
+	/* Header bar is dark in both themes (infixer.net). */
+	--color-header-bg: oklch(26.9% 0 0);
+	--color-header-text: oklch(100% 0 0);
+	--color-header-muted: oklch(87.2% 0.01 258.338);
+
+	/* Light theme */
+	--color-bg: oklch(100% 0 0);
+	--color-text: oklch(28% 0 0);
+	--color-muted: oklch(55.1% 0.027 264.364);
+	--color-link: oklch(28% 0 0);
+	--color-border: oklch(92.8% 0.006 264.531);
+	--color-surface: oklch(98.5% 0 0);
+	--color-code-bg: oklch(37.3% 0.034 259.733);
+	--color-code-text: oklch(100% 0 0);
+	--color-block-code-bg: #24292e;
+	--color-block-code-text: #e1e4e8;
+	--color-quote-border: oklch(87% 0 0);
+	--color-quote-bg: oklch(98.5% 0 0);
+	--color-missing: oklch(55.1% 0.027 264.364);
+	--color-caret: oklch(20.5% 0 0);
+	--color-selection: oklch(88.2% 0.059 254.128);
+	--color-danger: oklch(50.5% 0.213 27.518);
+	color-scheme: light;
 }
 
+:root.dark {
+	--color-bg: oklch(26.9% 0 0);
+	--color-text: oklch(98.5% 0.002 247.839);
+	--color-muted: oklch(70.7% 0.022 261.325);
+	--color-link: oklch(98.5% 0.002 247.839);
+	--color-border: oklch(37.3% 0.034 259.733);
+	--color-surface: oklch(27.8% 0.033 256.848);
+	--color-quote-border: oklch(43.9% 0 0);
+	--color-quote-bg: oklch(21.6% 0 0);
+	--color-missing: oklch(70.7% 0.022 261.325);
+	--color-caret: oklch(100% 0 0);
+	--color-selection: oklch(42.4% 0.199 265.638 / 55%);
+	--color-danger: oklch(70.4% 0.191 22.216);
+	color-scheme: dark;
+}
+
+/* No-JS fallback: follow the OS unless a theme class was set. */
 @media (prefers-color-scheme: dark) {
-	:root {
-		--color-bg: #16181c;
-		--color-text: #e6e8eb;
-		--color-muted: #9aa3ad;
-		--color-link: #6cb2ff;
-		--color-border: #30363d;
-		--color-code-bg: #22262c;
-		--color-missing: #e0956a;
+	:root:not(.light):not(.dark) {
+		--color-bg: oklch(26.9% 0 0);
+		--color-text: oklch(98.5% 0.002 247.839);
+		--color-muted: oklch(70.7% 0.022 261.325);
+		--color-link: oklch(98.5% 0.002 247.839);
+		--color-border: oklch(37.3% 0.034 259.733);
+		--color-surface: oklch(27.8% 0.033 256.848);
+		--color-quote-border: oklch(43.9% 0 0);
+		--color-quote-bg: oklch(21.6% 0 0);
+		--color-missing: oklch(70.7% 0.022 261.325);
+		--color-caret: oklch(100% 0 0);
+		--color-selection: oklch(42.4% 0.199 265.638 / 55%);
+		--color-danger: oklch(70.4% 0.191 22.216);
+		color-scheme: dark;
 	}
 }
 
@@ -37,6 +84,7 @@
 html {
 	-webkit-text-size-adjust: 100%;
 	text-size-adjust: 100%;
+	background: var(--color-bg);
 }
 
 body {
@@ -46,12 +94,44 @@ body {
 	color: var(--color-text);
 	font-family: var(--font-body);
 	line-height: 1.7;
-	padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
-		env(safe-area-inset-left);
+	overflow-wrap: break-word;
+	padding: calc(var(--header-height) + env(safe-area-inset-top)) env(safe-area-inset-right)
+		env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
+/* Links read like infixer.net: text colour, underlined, underline removed on hover. */
 a {
 	color: var(--color-link);
+	text-decoration: underline;
+	text-underline-offset: 0.15em;
+}
+
+a:hover {
+	text-decoration: none;
+}
+
+::selection {
+	background: var(--color-selection);
+}
+
+:focus-visible {
+	outline: 2px solid var(--color-text);
+	outline-offset: 2px;
+}
+
+button,
+input {
+	color: inherit;
+}
+
+/* SvelteKit's route announcer must stay visually hidden even if its style attribute is blocked. */
+#svelte-announcer {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 
 /* No inline style attributes: they are blocked by the CSP (design §9.8). */

@@ -177,7 +177,14 @@
 						'&.cm-focused': { outline: 'none' },
 						'.cm-scroller': { fontFamily: 'inherit', lineHeight: 'inherit', overflow: 'visible' },
 						'.cm-content': { padding: '0', caretColor: 'currentColor', minHeight: '6rem' },
-						'.cm-line': { padding: '0' }
+						'.cm-line': { padding: '0' },
+						// Visible caret / selection in both themes (CodeMirror's default caret is black).
+						'.cm-cursor, .cm-dropCursor': {
+							borderLeftColor: 'var(--color-caret)',
+							borderLeftWidth: '2px'
+						},
+						'&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground':
+							{ background: 'var(--color-selection)' }
 					}),
 					EditorView.updateListener.of((update) => {
 						if (!update.docChanged) return;
@@ -417,7 +424,7 @@
 	.status[data-state='quota-error'],
 	.status[data-state='invalid'],
 	.status[data-state='too-large'] {
-		color: #c62828;
+		color: var(--color-danger);
 	}
 
 	.link {
