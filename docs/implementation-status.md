@@ -86,6 +86,7 @@ pnpm exec wrangler r2 bucket create infixer-link-backup-staging
 | `pnpm --filter web test:workers` | 52 passed（pages 19、auth 20、config 3、R2 2、WebAuthn 7、Temporal 1） |
 | `pnpm --filter web test:e2e` | 18 passed / 12 skipped（オーナー操作の E2E は Chromium 仮想認証器のみ。WebKit ではスキップ） |
 | check / lint | 0 errors |
+| GitHub Actions（PR #2） | 全ステップ成功 |
 | 防御を外したときのテスト検出 | tx_guard と CSRF 検査を一時的に無効化すると 3 件失敗することを確認し、元に戻した |
 
 ### 未検証
