@@ -10,7 +10,10 @@ export const fallback: RequestHandler = ({ request }) => {
 	api ??= createApi({
 		db: env.DB,
 		config: authConfig(),
-		allowLocalPreviews: env.LINK_PREVIEW_ALLOW_LOCAL === 'true'
+		allowLocalPreviews: env.LINK_PREVIEW_ALLOW_LOCAL === 'true',
+		pending: env.PENDING,
+		media: env.MEDIA,
+		mediaBaseUrl: env.MEDIA_BASE_URL
 	});
 	return api.fetch(request);
 };

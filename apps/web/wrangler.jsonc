@@ -21,7 +21,10 @@
 		"RP_ID": "localhost",
 		"APP_ORIGINS": "http://localhost:5173,http://localhost:4173",
 		// Link previews may fetch http://localhost only in local development / E2E.
-		"LINK_PREVIEW_ALLOW_LOCAL": "true"
+		"LINK_PREVIEW_ALLOW_LOCAL": "true",
+		// Public base URL of the MEDIA bucket. Production: "https://media.infixer.link" (R2 custom
+		// domain + CDN). Locally the Worker serves /media from the binding (dev only).
+		"MEDIA_BASE_URL": "/media"
 	},
 	// Local-only placeholders. Real resource IDs are created per environment
 	// (staging/production) with explicit user approval; never guess them.

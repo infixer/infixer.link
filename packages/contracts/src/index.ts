@@ -230,6 +230,16 @@ export interface SessionSummaryDto {
 	current: boolean;
 }
 
+export interface AssetDto {
+	id: string;
+	status: 'pending' | 'ready' | 'rejected';
+	/** Public URL of the immutable original (ready only). */
+	url: string | null;
+	width: number | null;
+	height: number | null;
+	mime: string | null;
+}
+
 export interface LinkPreviewDto {
 	url: string;
 	ok: boolean;
@@ -237,6 +247,8 @@ export interface LinkPreviewDto {
 	description: string | null;
 	siteName: string | null;
 	host: string;
+	/** Card image copied into R2 (never hotlinked). */
+	image: { url: string; width: number; height: number } | null;
 }
 
 export const LinkPreviewsRequest = v.strictObject({
