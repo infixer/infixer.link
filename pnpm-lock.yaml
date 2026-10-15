@@ -10,7 +10,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@garden/time':
+      '@infixer-link/time':
         specifier: workspace:*
         version: link:../../packages/time
     devDependencies:

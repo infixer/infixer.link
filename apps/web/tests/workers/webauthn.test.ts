@@ -19,7 +19,7 @@ const ORIGIN = 'https://infixer.link';
 async function registerOwner() {
 	const authenticator = await SoftAuthenticator.create();
 	const options = await generateRegistrationOptions({
-		rpName: 'Personal Garden',
+		rpName: 'infixer.link',
 		rpID: RP_ID,
 		userName: 'owner',
 		attestationType: 'none',

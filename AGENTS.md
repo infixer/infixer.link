@@ -1,6 +1,6 @@
 # AGENTS.md
 
-個人用公開 Wiki・デイリー「Personal Garden」（`infixer.link`）。
+個人用公開 Wiki・デイリー **infixer.link**。名称に「garden」は使わない（ADR 0005）。
 
 ## 必読
 
@@ -20,7 +20,7 @@
 - リポジトリは **公開**。secret・token・`.dev.vars`・Cloudflare の resource ID 以外の秘密をコミットしない。
 - Cloudflare の resource 作成、deploy、課金が発生する設定は、その都度ユーザーの承認を得る。
 - 本番 RP ID / origin は `infixer.link` / `https://infixer.link`、staging は `staging.infixer.link`（ADR 0004）。Host header から生成しない。
-- フロントは SvelteKit + TypeScript + 生CSS（Tailwind・UI キット不可）。日付は `@garden/time` 経由の Temporal。
+- フロントは SvelteKit + TypeScript + 生CSS（Tailwind・UI キット不可）。日付は `@infixer-link/time` 経由の Temporal。
 - bindings は `import { env } from 'cloudflare:workers'` で読む（SvelteKit 3 / adapter-cloudflare 8）。
 - D1 の更新成功判定は `RETURNING` で行い、`meta.changes` を使わない（ADR 0002）。
 - browser 用コードから `$lib/server`・secret・D1 を import しない。`tests/helpers` をアプリから import しない。
@@ -33,5 +33,5 @@ pnpm dev                          # vite dev（apps/web）
 pnpm --filter web test            # unit + workers 統合テスト
 pnpm --filter web test:e2e        # build + wrangler dev + Playwright
 pnpm --filter web check && pnpm --filter web lint
-pnpm --filter @garden/time test
+pnpm --filter @infixer-link/time test
 ```

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Temporal, formatDailyDate, temporalSource, today } from '@garden/time';
+import { Temporal, formatDailyDate, temporalSource, today } from '@infixer-link/time';
 
 describe('Temporal in workerd', () => {
 	it('resolves the JST calendar date with IANA time zone data', () => {

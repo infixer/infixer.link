@@ -25,7 +25,7 @@
 
 | コマンド | 結果 |
 |---|---|
-| `pnpm --filter @garden/time test` | 6 passed |
+| `pnpm --filter @infixer-link/time test` | 6 passed |
 | `pnpm --filter web test:workers` | 22 passed（D1 12、R2 2、WebAuthn 7、Temporal 1） |
 | `pnpm --filter web test:e2e` | 12 passed（3 projects × 4） |
 | `pnpm --filter web check` / `lint` | 0 errors |
@@ -52,10 +52,10 @@
 ```sh
 cd apps/web
 pnpm exec wrangler login
-pnpm exec wrangler d1 create garden-staging
-pnpm exec wrangler r2 bucket create garden-media-staging
-pnpm exec wrangler r2 bucket create garden-pending-staging
-pnpm exec wrangler r2 bucket create garden-backup-staging
+pnpm exec wrangler d1 create infixer-link-staging
+pnpm exec wrangler r2 bucket create infixer-link-media-staging
+pnpm exec wrangler r2 bucket create infixer-link-pending-staging
+pnpm exec wrangler r2 bucket create infixer-link-backup-staging
 # 返された database_id を wrangler.jsonc の env.staging に記入し、
 # staging.infixer.link を custom domain として設定してから deploy
 ```

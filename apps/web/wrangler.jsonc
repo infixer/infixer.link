@@ -1,6 +1,6 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
-	"name": "garden",
+	"name": "infixer-link",
 	"compatibility_date": "2026-10-15",
 	"compatibility_flags": ["nodejs_als"],
 	"main": ".svelte-kit/cloudflare/_worker.js",
@@ -20,14 +20,14 @@
 	"d1_databases": [
 		{
 			"binding": "DB",
-			"database_name": "garden-local",
+			"database_name": "infixer-link-local",
 			"database_id": "00000000-0000-0000-0000-000000000000",
 			"migrations_dir": "migrations"
 		}
 	],
 	"r2_buckets": [
-		{ "binding": "MEDIA", "bucket_name": "garden-media-local" },
-		{ "binding": "PENDING", "bucket_name": "garden-pending-local" },
-		{ "binding": "BACKUP", "bucket_name": "garden-backup-local" }
+		{ "binding": "MEDIA", "bucket_name": "infixer-link-media-local" },
+		{ "binding": "PENDING", "bucket_name": "infixer-link-pending-local" },
+		{ "binding": "BACKUP", "bucket_name": "infixer-link-backup-local" }
 	]
 }

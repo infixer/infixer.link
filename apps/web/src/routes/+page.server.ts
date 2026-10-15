@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { DEFAULT_TIME_ZONE, formatDailyDate, today } from '@garden/time';
+import { DEFAULT_TIME_ZONE, formatDailyDate, today } from '@infixer-link/time';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = () => {

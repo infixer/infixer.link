@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { json } from '@sveltejs/kit';
-import { temporalSource } from '@garden/time';
+import { temporalSource } from '@infixer-link/time';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {

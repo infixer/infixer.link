@@ -2,6 +2,7 @@
 
 > **リポジトリでの決定事項（2026-10-15 追記）**
 > - ドメインは `infixer.link`（apex）。本文中の `example.net` → `infixer.link`、`media.example.net` → `media.infixer.link`、staging は `staging.infixer.link`（[ADR 0004](adr/0004-domain-infixer-link.md)）。
+> - 名称は「Personal Garden」をやめ **infixer.link** に統一（[ADR 0005](adr/0005-naming.md)）。本文中の `garden-text-v1` 等は置換済み。
 > - Phase 0 の実証結果と設計への影響は [`implementation-status.md`](implementation-status.md) と [`adr/`](adr/) を参照。
 > - 以下は受領した設計本文（「次のプロンプト例」のみ省略、他は変更なし）。
 
@@ -178,7 +179,7 @@ flowchart TD
 
 ### 6.1 v1のテキスト形式
 
-`format = garden-text-v1`、UTF-8、LF。タイトルは本文と別フィールド。
+`format = link-text-v1`、UTF-8、LF。タイトルは本文と別フィールド。
 
 ```text
 今日読んだもの
@@ -306,7 +307,7 @@ JSON APIは`/v1`で固定。日時はISO文字列、日付はYYYY-MM-DD、revisi
   "baseRevision": 12,
   "mutationId": "UUID",
   "title": "2026-10-15",
-  "format": "garden-text-v1",
+  "format": "link-text-v1",
   "source": "今日のメモ\n [読書]"
 }
 ```
@@ -359,7 +360,7 @@ ownerは一人。メールアドレスの自己申告やメールの一致で新
 ### 9.4 セッションと再認証
 
 - ランダムな256-bit以上のopaque session tokenを発行。DBにはhashのみ保存。
-- cookie：`__Host-garden_session`、Secure、HttpOnly、SameSite=Lax、Path=/、Domainなし。localStorageへtokenを保存しない。
+- cookie：`__Host-link_session`、Secure、HttpOnly、SameSite=Lax、Path=/、Domainなし。localStorageへtokenを保存しない。
 - 初期期限はidle 7日／absolute 30日を候補とし設定可能にする。DB書き込み削減のためlastSeen更新を間引くが、失効・期限確認は本人APIごとに行う。
 - 初回ログイン後はsessionで編集できる。通常保存のたびにFace ID等を要求しない。別browser、期限切れ、失効後は再認証。
 - credential追加・削除、CLI token発行、全session失効等は直近5分以内のパスキー再認証を必須とする。
@@ -501,13 +502,13 @@ D1はFTS5に対応するが、デフォルトの分かち方だけで日本語�
 Node.jsのサポート中LTS上でTypeScript由来のCLIを実行。標準fetchと必要最小限の引数解析を使う。
 
 ```sh
-garden today
-garden get PAGE_ID
-garden append today '読書メモ'
-garden search 'アンチ・オイディプス'
-garden put PAGE_ID --file note.garden.txt --base-revision 12
-garden export ./export
-garden backup ./backup --with-assets
+infixer today
+infixer get PAGE_ID
+infixer append today '読書メモ'
+infixer search 'アンチ・オイディプス'
+infixer put PAGE_ID --file note.link.txt --base-revision 12
+infixer export ./export
+infixer backup ./backup --with-assets
 ```
 
 - `--json`、非対話モード、意味のある終了コードを用意。
@@ -520,7 +521,7 @@ garden backup ./backup --with-assets
 ```text
 export/
   manifest.json
-  pages/{pageId}.garden.txt
+  pages/{pageId}.link.txt
   metadata/{pageId}.json
   assets/{assetId}.{ext}       # --with-assets時のみ
   assets-manifest.json
@@ -532,8 +533,8 @@ Markdown変換は別コマンドの派生出力として追加できる。独自
 
 ### 13.3 双方向ファイル同期（Phase 9）
 
-- `garden pull`で本文とmetadataを取得し、`.garden/state`にbaseRevisionとbase内容hashを記録。
-- `garden push`はローカル変更だけ送信。remote変更と同時なら三者比較し、競合ファイルを作る。
+- `infixer pull`で本文とmetadataを取得し、`.infixer/state`にbaseRevisionとbase内容hashを記録。
+- `infixer push`はローカル変更だけ送信。remote変更と同時なら三者比較し、競合ファイルを作る。
 - 更新sequenceで削除も取得。ローカルのファイル欠落を自動でサーバー削除と解釈しない。削除は明示コマンド。
 - 画像はデフォルトでmanifestのみ。必要時download、`--with-assets`で全件。
 - 初期は明示的なpull／push。常駐watchを必須にしない。
@@ -700,7 +701,7 @@ docs/
 
 依存：2。
 
-実装：garden-text-v1 parser、インデント、リンク／タグ補完、未作成先、alias、関連ページ、行装飾、閲覧用SSR renderer。
+実装：link-text-v1 parser、インデント、リンク／タグ補完、未作成先、alias、関連ページ、行装飾、閲覧用SSR renderer。
 
 テスト：grammar fixture、XSS、コード内のリンク、改名、共通リンク先、接続集中ケース、補完とIMEの干渉。
 

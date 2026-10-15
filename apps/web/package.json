@@ -47,6 +47,6 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"dependencies": {
-		"@garden/time": "workspace:*"
+		"@infixer-link/time": "workspace:*"
 	}
 }

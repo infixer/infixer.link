@@ -5,11 +5,11 @@
 </script>
 
 <svelte:head>
-	<title>Personal Garden</title>
+	<title>infixer.link</title>
 </svelte:head>
 
 <main>
-	<h1>Personal Garden</h1>
+	<h1>infixer.link</h1>
 	<p>
 		今日は <time datetime={data.today} data-testid="today">{data.today}</time>（{data.timeZone}）
 	</p>

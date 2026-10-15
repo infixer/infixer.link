@@ -22,11 +22,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Type check
-        run: pnpm --filter web check && pnpm --filter @garden/time check
+        run: pnpm --filter web check && pnpm --filter @infixer-link/time check
       - name: Lint
         run: pnpm --filter web lint
       - name: Unit tests
-        run: pnpm --filter @garden/time test && pnpm --filter web test:unit
+        run: pnpm --filter @infixer-link/time test && pnpm --filter web test:unit
       - name: Workers integration tests
         run: pnpm --filter web test:workers
 
