@@ -9,7 +9,7 @@
 | 2 日記を毎日書ける最小版 | **実装完了（ローカル）。実機 IME 未検証** | `phase-2`（`phase-1` の上） |
 | 3 Cosense 風のリンクと操作感 | **実装完了（ローカル）。実機 IME と補完の干渉は未検証** | `phase-3`（`phase-2` の上） |
 | 4 画像アップロードと高速配信 | **実装完了（ローカル）。R2 のカスタムドメインと実機の写真選択は未検証** | `phase-4`（`phase-3` の上） |
-| 5 検索・一覧・公開表示の性能 | **実装完了（ローカル）。本番 D1 での時間と実機の IME は未検証** | `phase-5`（`phase-4` の上） |
+| 5 検索・一覧・公開表示の性能 | **実装完了（ローカル）。本番 D1 での時間と実機の IME は未検証。一覧のカードと YouTube の埋め込みを追加** | `phase-5`（`phase-4` の上） |
 | 6〜10 | 未着手 | — |
 
 ## Phase 0（2026-10-15）
@@ -241,6 +241,19 @@ pnpm exec wrangler r2 bucket create infixer-link-backup-staging
 - 公開ページの cold / warm の比較、モバイル回線相当での LCP、実機での INP。
 - **実機の日本語 IME での入力中の検索**（CDP のエミュレーションでは確認済み）。iPhone で検索欄にフォーカスしたときの表示。
 - 1〜2 文字の検索と関連ページの rows read が、公開での閲覧数に比例して増えること（ADR 0013 の「残るリスク」。Phase 8 の監視とあわせて判断する）。
+
+### 追加：一覧のカード表示と YouTube の埋め込み（2026-10-16、ユーザーの依頼。ADR 0014）
+
+- **一覧**：Cosense のような正方形のカードのグリッド（スマホ 2 列・PC 4 列）。ページで最初の画像（アップロード画像、リンクカードの画像、YouTube のサムネイル）を出し、なければ最初の数行を出す。
+- **保存**：本文から画像の候補を計算して `pages.thumbs_json` に保存する（マイグレーション 0006）。画像は一覧を読むときに解決する。既存のローカルデータは `pnpm --filter web db:backfill-thumbnails`。
+- **YouTube**：URL だけの行は 16:9 の枠にサムネイルと再生ボタンを出し、押すと `youtube-nocookie.com` のプレイヤーに置き換える（公開ページとエディタ）。タイトルは oEmbed、サムネイルは i.ytimg.com から R2 に取り込む。CSP に `frame-src https://www.youtube-nocookie.com` を追加した。
+- **テスト**
+  - packages：content 37 passed（YouTube の URL の判定・開始位置・偽物の拒否、サムネイルの候補、本文の先頭の文字）
+  - `test:workers`：100 passed（cards 8 件を追加：文字だけのカード、最初の画像、画像のない候補を飛ばす、カードの画像、編集・復元での更新、oEmbed とサムネイル、oEmbed が失敗したとき、動画は HTML を取得しない）
+  - `test:e2e`：106 passed / 56 skipped（cards.e2e：カードの画像と文字、スマホで 2 列・正方形・横スクロールなし、押すまでプレイヤーを読み込まない、CSP エラーなし、JavaScript なしではリンク、エディタでの再生）。`frame-src` を外すと再生のテストが失敗することを確かめ、元に戻した
+  - 全体の E2E を 3 回実行し、1 回はローカル D1 の内部エラー（上記と同じ `Failed to get session commit token`）で 1 件が失敗した。miniflare の D1 エミュレーターが内部のストレージから bookmark を取れなかったときのエラーで、SQL の後に起きている。アプリのエラーではない
+  - check / lint は 0 errors
+- **未検証**：実際の YouTube（oEmbed・サムネイル・プレイヤー）への接続、iPhone での再生と全画面表示。
 
 ## 次：Phase 6 への引き継ぎ
 

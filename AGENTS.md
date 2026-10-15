@@ -38,6 +38,7 @@ pnpm --filter web check && pnpm --filter web lint
 pnpm --filter './packages/**' test
 pnpm --filter web db:migrate      # ローカル D1 にマイグレーション
 pnpm --filter web db:seed         # サンプルページ（--synthetic 2000 で合成データも）
+pnpm --filter web db:backfill-thumbnails  # 0006 より前のページに一覧のサムネイル候補を入れる
 pnpm --filter web perf:data       # 合成 2,000 / 10,000 ページで検索・関連・保存を計測
 pnpm --filter web owner:grant     # セットアップコード発行（ops/runbooks/owner-auth.md）
 ```

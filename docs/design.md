@@ -8,6 +8,7 @@
 > - URL だけの行は**リンクカード**として表示する（[ADR 0010](adr/0010-link-cards.md)）。
 > - 画像は Worker を経由して非公開の pending バケットに送り、検証してから公開の MEDIA にコピーする（[ADR 0012](adr/0012-images.md)）。§10.2 の署名付き PUT はこれで置き換え。
 > - 日本語検索は FTS5 trigram（3 文字以上）と LIKE（1〜2 文字）。検索索引は安定した rowid で更新し、公開 HTML には ETag を付けない（[ADR 0013](adr/0013-search-and-public-performance.md)）。
+> - 一覧は Cosense 風のカード（最初の画像・カード・動画のサムネイル）。YouTube の URL の行は、押すと再生される埋め込みプレイヤー（[ADR 0014](adr/0014-list-cards-and-youtube.md)）。
 > - Phase 0 の実証結果と設計への影響は [`implementation-status.md`](implementation-status.md) と [`adr/`](adr/) を参照。
 > - 以下は受領した設計本文（「次のプロンプト例」のみ省略、他は変更なし）。
 
