@@ -14,5 +14,15 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
 		listPasskeys(env.DB, session),
 		listSessions(env.DB, session, now)
 	]);
-	return { csrfToken: session.csrfToken, passkeys, sessions };
+	const owner = await env.DB.prepare('SELECT user_handle FROM owner WHERE id = 1').first<{
+		user_handle: string;
+	}>();
+	return {
+		csrfToken: session.csrfToken,
+		passkeys,
+		sessions,
+		// For the WebAuthn Signal API: lets the passkey manager hide removed credentials.
+		rpId: authConfig().rpId,
+		userHandle: owner?.user_handle ?? ''
+	};
 };

@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import { api, errorMessage, passkeyAdd, withReauth } from '#lib/owner/client.ts';
+	import { onMount } from 'svelte';
+	import {
+		api,
+		errorMessage,
+		passkeyAdd,
+		signalAcceptedPasskeys,
+		signalUnknownPasskey,
+		withReauth
+	} from '#lib/owner/client.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -24,6 +32,15 @@
 
 	const csrf = () => data.csrfToken;
 
+	const syncPasskeyManager = () =>
+		signalAcceptedPasskeys(
+			data.rpId,
+			data.userHandle,
+			data.passkeys.map((p) => p.id)
+		);
+
+	onMount(syncPasskeyManager);
+
 	function addPasskey() {
 		return run(
 			() => withReauth(csrf(), () => passkeyAdd(newName.trim() || 'パスキー', csrf())),
@@ -31,12 +48,12 @@
 		);
 	}
 
-	function removePasskey(id: string, name: string) {
+	async function removePasskey(id: string, name: string) {
 		if (
 			!confirm(`「${name}」を削除しますか？ このパスキーでログイン中の端末もログアウトされます。`)
 		)
 			return;
-		return run(
+		await run(
 			() =>
 				withReauth(csrf(), () =>
 					api(`/api/owner/v1/passkeys/${encodeURIComponent(id)}`, {
@@ -46,6 +63,11 @@
 				),
 			'パスキーを削除しました。'
 		);
+		if (!data.passkeys.some((p) => p.id === id)) {
+			// Ask the platform passkey manager to hide the removed passkey (best effort).
+			await signalUnknownPasskey(data.rpId, id);
+			await syncPasskeyManager();
+		}
 	}
 
 	function revokeSession(id: string) {
