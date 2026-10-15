@@ -49,7 +49,7 @@ test('owner-created page renders publicly without owner data or editor code', as
 	await expect(anon.locator('h1')).toHaveText(title);
 	await expect(anon.getByTestId('page-source')).toContainText('[読書] の続き');
 	await anon.waitForLoadState('networkidle');
-	await expect(anon.getByTestId('edit')).toHaveCount(0);
+	await expect(anon.getByTestId('editor')).toHaveCount(0);
 	expect(scripts.some((s) => s.includes('cm-content'))).toBe(false); // no CodeMirror for visitors
 	expect(await anon.content()).not.toContain('/owner');
 });

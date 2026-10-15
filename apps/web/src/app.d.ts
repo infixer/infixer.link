@@ -7,8 +7,8 @@ declare global {
 		// interface Locals {}
 		// interface PageData {}
 		interface PageState {
-			/** Open the editor right after navigation (e.g. a daily page was just created). */
-			edit?: boolean;
+			/** Put the cursor in the editor right after navigation (a page was just created). */
+			edit?: boolean | 'title' | 'body';
 		}
 	}
 }

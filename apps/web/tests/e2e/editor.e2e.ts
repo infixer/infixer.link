@@ -7,8 +7,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { BASE, createPage, getOwnerPage, ownerContext, unique, updatePage } from './helpers';
 
+/** For the owner the editor replaces the read view by itself; there is no edit button. */
 async function openEditor(page: Page) {
-	await page.getByTestId('edit').click();
 	await expect(page.getByTestId('editor')).toBeVisible();
 	await expect(page.locator('.cm-content')).toBeVisible();
 }
@@ -36,8 +36,6 @@ test('owner edits in place: URL never changes and the public page shows the resu
 	await openEditor(page);
 	await typeInBody(page, '\n 追記した行');
 	await expect(saveState(page)).toHaveText('公開済み', { timeout: 10_000 });
-	await page.getByRole('button', { name: '完了' }).click();
-	await expect(page.getByTestId('page-source')).toContainText('追記した行');
 	expect(page.url()).toBe(url);
 	expect(new Set(urls)).toEqual(new Set([url]));
 
@@ -46,14 +44,56 @@ test('owner edits in place: URL never changes and the public page shows the resu
 	await expect(anon.getByTestId('page-source')).toContainText('追記した行');
 });
 
-test('clicking the text opens the editor for the owner', async ({ browser }) => {
+test('no edit button: the read view turns into the editor in place, without moving', async ({
+	browser
+}) => {
 	const owner = await ownerContext(browser);
-	const { pageId } = await createPage(owner.request, unique('クリック編集'), '本文をタップ');
+	const { pageId } = await createPage(owner.request, unique('その場で編集'), '一行目\n二行目');
 	const page = await owner.newPage();
+	await page.route('**/_app/immutable/**', async (route) => {
+		// Hold the editor chunk briefly so the read view can be measured first.
+		await new Promise((r) => setTimeout(r, 300));
+		await route.continue();
+	});
 	await page.goto(`/p/${pageId}/x`);
-	await expect(page.getByTestId('edit')).toBeVisible();
-	await page.getByTestId('page-source').click();
-	await expect(page.getByTestId('editor')).toBeVisible();
+	const readTitle = await page.locator('article h1').boundingBox();
+	const readLine = await page.locator('article .line').first().boundingBox();
+	await openEditor(page);
+	await expect(page.getByTestId('edit')).toHaveCount(0);
+	await expect(page.getByRole('button', { name: '完了' })).toHaveCount(0);
+	const editTitle = await page.getByLabel('タイトル').boundingBox();
+	const editLine = await page.locator('.cm-line').first().boundingBox();
+	expect(Math.abs(editTitle!.y - readTitle!.y)).toBeLessThanOrEqual(1);
+	expect(Math.abs(editLine!.y - readLine!.y)).toBeLessThanOrEqual(1);
+	expect(Math.abs(editLine!.x - readLine!.x)).toBeLessThanOrEqual(1);
+
+	// A click lands directly in the text.
+	await page.locator('.cm-line').nth(1).click();
+	await page.keyboard.press('End');
+	await page.keyboard.type('！');
+	await expect(saveState(page)).toHaveText('公開済み', { timeout: 10_000 });
+	expect((await getOwnerPage(owner.request, pageId)).source).toBe('一行目\n二行目！');
+});
+
+test('新規 creates a page and puts the cursor in its title', async ({ browser }) => {
+	const owner = await ownerContext(browser);
+	const page = await owner.newPage();
+	await page.goto('/');
+	await page.getByTestId('new-page').click();
+	await expect(page).toHaveURL(/\/p\/[0-9a-f-]{36}\//);
+	const titleInput = page.getByLabel('タイトル');
+	await expect(titleInput).toBeFocused();
+	await expect(titleInput).toHaveValue(/^無題 /);
+	const name = unique('新しいページ');
+	await page.keyboard.type(name); // replaces the selected placeholder title
+	await page.keyboard.press('Tab');
+	await expect(saveState(page)).toHaveText('公開済み', { timeout: 10_000 });
+	const id = page.url().split('/')[4];
+	expect((await getOwnerPage(owner.request, id)).title).toBe(name);
+
+	const anon = await (await browser.newContext()).newPage();
+	await anon.goto('/');
+	await expect(anon.getByTestId('new-page')).toHaveCount(0);
 });
 
 test.describe('chromium-only scenarios', () => {
@@ -190,16 +230,14 @@ test.describe('chromium-only scenarios', () => {
 			const { pageId } = await createPage(owner.request, unique('スマホ'), 'スマホで編集');
 			const page = await owner.newPage();
 			await page.goto(`/p/${pageId}/x`);
-			await page.getByTestId('edit').tap();
-			await expect(page.locator('.cm-content')).toBeVisible();
+			await openEditor(page);
 			const overflow = await page.evaluate(
 				() => document.documentElement.scrollWidth - document.documentElement.clientWidth
 			);
 			expect(overflow).toBeLessThanOrEqual(0);
-			for (const name of ['完了', '削除']) {
-				const box = await page.getByRole('button', { name }).boundingBox();
-				expect(box!.height).toBeGreaterThanOrEqual(44);
-			}
+			const box = await page.getByRole('button', { name: '削除' }).boundingBox();
+			expect(box!.height).toBeGreaterThanOrEqual(44);
+			expect((await page.getByTestId('new-page').boundingBox())!.height).toBeGreaterThanOrEqual(44);
 		});
 	});
 

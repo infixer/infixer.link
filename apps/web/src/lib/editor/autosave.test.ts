@@ -257,6 +257,19 @@ describe('Autosave', () => {
 	});
 });
 
+describe('adoptServer', () => {
+	it('adopts a newer server copy only when there are no local edits', async () => {
+		const { clock, auto } = setup();
+		expect(auto.adoptServer({ title: 't', source: 'newer', revision: 2 })).toBe(true);
+		expect(auto.snapshot.source).toBe('newer');
+		expect(auto.revision).toBe(2);
+		auto.edit({ title: 't', source: 'local edit' });
+		await clock.advance(100);
+		expect(auto.adoptServer({ title: 't', source: 'even newer', revision: 3 })).toBe(false);
+		expect(auto.snapshot.source).toBe('local edit');
+	});
+});
+
 describe('restore', () => {
 	const server: ServerPage = { title: 't', source: 'server v2', revision: 2 };
 	const draft = (d: Partial<Draft>): Draft => ({

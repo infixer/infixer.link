@@ -258,6 +258,20 @@ export class Autosave {
 		await this.send();
 	}
 
+	/**
+	 * Adopts a newer server copy fetched after the editor opened (it starts from the
+	 * server-rendered page). Only when nothing local is unsaved; otherwise the next
+	 * save reports a conflict as usual. Returns true when the copy was adopted.
+	 */
+	adoptServer(server: ServerPage): boolean {
+		if (server.revision <= this.baseRevision) return false;
+		if (!same(this.current, this.synced) || this.pending || this.inFlight) return false;
+		this.current = { title: server.title, source: server.source };
+		this.synced = this.current;
+		this.baseRevision = server.revision;
+		return true;
+	}
+
 	dispose() {
 		this.deps.clock.clearTimeout(this.localTimer);
 		this.deps.clock.clearTimeout(this.remoteTimer);

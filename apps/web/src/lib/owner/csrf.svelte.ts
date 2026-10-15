@@ -1,5 +1,5 @@
 /** Owner session state for a page view, created only after a positive session probe. */
-import { fetchSession } from './session.ts';
+import { fetchSession, sessionOnce } from './session.ts';
 import type { CsrfSource } from '../editor/transport.ts';
 
 export class OwnerSession implements CsrfSource {
@@ -27,7 +27,7 @@ export class OwnerSession implements CsrfSource {
 
 	/** Returns an owner session when the visitor is signed in; anonymous visitors get null. */
 	static async probe(): Promise<OwnerSession | null> {
-		const session = await fetchSession();
+		const session = await sessionOnce();
 		return session.authenticated ? new OwnerSession(session.csrfToken) : null;
 	}
 }

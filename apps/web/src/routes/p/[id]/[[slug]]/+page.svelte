@@ -1,6 +1,7 @@
 <!--
-	Public page and, for the signed-in owner only, in-place editing on the same URL
-	(design §4.1, §9.1). The editor and CodeMirror are imported after the session probe.
+	Public page. For the signed-in owner the same URL is directly editable (design §4.1,
+	§9.1): after the session probe the editor is mounted underneath the read view, styled
+	identically, and the two are swapped in one frame once it is ready — no edit mode.
 -->
 <script lang="ts">
 	import { onMount, type Component } from 'svelte';
@@ -11,49 +12,41 @@
 
 	let { data }: PageProps = $props();
 
-	type Shown = { title: string; source: string; updatedAt: string };
-	let override = $state<{ id: string; shown: Shown } | null>(null);
-	let shown = $derived<Shown>(override?.id === data.page.id ? override.shown : data.page);
-	let lines = $derived(shown.source.split('\n'));
-
+	let lines = $derived(data.page.source.split('\n'));
 	let owner = $state<OwnerSession | null>(null);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- lazily imported component
 	let Editor = $state<Component<any> | null>(null);
-	let editing = $state(false);
+	let editorReady = $state(false);
+	let focus = $state<'title' | 'body' | null>(null);
 	let deletedRevision = $state<number | null>(null);
 	let message = $state('');
 
 	onMount(async () => {
 		owner = await OwnerSession.probe();
-		if (owner && appPage.state.edit) {
-			replaceState('', {});
-			await startEdit();
+		if (!owner) return;
+		Editor = (await import('#lib/editor/PageEditor.svelte')).default;
+	});
+
+	// Navigating to another page remounts the editor: show the read view until it is ready.
+	let shownId = '';
+	$effect.pre(() => {
+		if (data.page.id !== shownId) {
+			shownId = data.page.id;
+			editorReady = false;
+			deletedRevision = null;
+			// The route component is reused across pages, so read the request on every page change.
+			const requested = appPage.state.edit;
+			focus = requested ? (requested === true ? 'body' : requested) : null;
 		}
 	});
 
-	async function startEdit() {
-		if (!owner || editing) return;
-		Editor ??= (await import('#lib/editor/PageEditor.svelte')).default;
-		editing = true;
-	}
-
-	function onContentClick(event: MouseEvent) {
-		if (!owner || editing) return;
-		if ((event.target as HTMLElement).closest('a, button')) return;
-		if (window.getSelection()?.toString()) return; // selecting text is not an edit request
-		void startEdit();
-	}
-
-	function closed(next: { title: string; source: string; revision: number }) {
-		override = {
-			id: data.page.id,
-			shown: { title: next.title, source: next.source, updatedAt: new Date().toISOString() }
-		};
-		editing = false;
+	function ready() {
+		editorReady = true;
+		// The focus request is one-shot; reloading the page must not re-focus.
+		if (appPage.state.edit) replaceState('', {});
 	}
 
 	function deleted(revision: number) {
-		editing = false;
 		deletedRevision = revision;
 	}
 
@@ -68,13 +61,15 @@
 			return;
 		}
 		deletedRevision = null;
-		override = null;
+		editorReady = false;
+		Editor = null;
 		await invalidateAll();
+		Editor = (await import('#lib/editor/PageEditor.svelte')).default;
 	}
 </script>
 
 <svelte:head>
-	<title>{shown.title} - infixer.link</title>
+	<title>{data.page.title} - infixer.link</title>
 </svelte:head>
 
 {#if deletedRevision !== null}
@@ -83,29 +78,52 @@
 		<button type="button" onclick={restore}>元に戻す</button>
 		{#if message}<p role="alert">{message}</p>{/if}
 	</section>
-{:else if editing && Editor && owner}
-	<Editor pageId={data.page.id} csrf={owner} onclose={closed} ondeleted={deleted} />
 {:else}
-	<article>
-		{#if owner}
-			<div class="owner-bar">
-				<button type="button" onclick={startEdit} data-testid="edit">編集</button>
+	<div class="stack">
+		<article class:hidden={editorReady} aria-hidden={editorReady}>
+			<h1>{data.page.title}</h1>
+			<p class="meta">
+				更新 <time datetime={data.page.updatedAt}>{data.page.updatedAt.slice(0, 10)}</time>
+			</p>
+			<div class="source" data-testid="page-source">
+				{#each lines as line, i (i)}
+					<div class="line">{line || ' '}</div>
+				{/each}
 			</div>
+		</article>
+		{#if owner && Editor}
+			{#key data.page.id}
+				<div class="layer" class:hidden={!editorReady}>
+					<Editor
+						pageId={data.page.id}
+						csrf={owner}
+						initial={data.page}
+						{focus}
+						onready={ready}
+						ondeleted={deleted}
+					/>
+				</div>
+			{/key}
 		{/if}
-		<h1>{shown.title}</h1>
-		<p class="meta">
-			更新 <time datetime={shown.updatedAt}>{shown.updatedAt.slice(0, 10)}</time>
-		</p>
-		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the 編集 button is the keyboard path) -->
-		<div class="source" class:editable={!!owner} data-testid="page-source" onclick={onContentClick}>
-			{#each lines as line, i (i)}
-				<div class="line">{line || ' '}</div>
-			{/each}
-		</div>
-	</article>
+	</div>
 {/if}
 
 <style>
+	/* Read view and editor occupy the same grid cell, so swapping them does not move anything. */
+	.stack {
+		display: grid;
+	}
+
+	.stack > * {
+		grid-area: 1 / 1;
+		min-width: 0;
+	}
+
+	.hidden {
+		visibility: hidden;
+		pointer-events: none;
+	}
+
 	h1 {
 		font-size: 1.5rem;
 		margin: 0;
@@ -118,19 +136,13 @@
 		font-size: 0.875rem;
 	}
 
-	.line {
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
-	}
-
-	.editable {
-		cursor: text;
+	.source {
 		min-height: 6rem;
 	}
 
-	.owner-bar {
-		display: flex;
-		justify-content: flex-end;
+	.line {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 	}
 
 	button {

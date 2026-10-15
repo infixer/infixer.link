@@ -100,7 +100,8 @@ pnpm exec wrangler r2 bucket create infixer-link-backup-staging
 
 ### 成果物
 
-- **同一 URL での編集**：`/p/{id}/{slug}` で本人だけに「編集」を表示し、本文クリックでも編集を始められる。CodeMirror 6 のエディタは遅延読み込み。完了・削除・復元でも URL は変わらない（ADR 0008）
+- **同一 URL での編集**：`/p/{id}/{slug}` は、本人ならそのまま編集できる（編集ボタンや「完了」はない）。見た目が同じ CodeMirror 6 のエディタに 1 フレームで入れ替えるので、画面がちらつかない。削除・復元でも URL は変わらない（ADR 0008）
+- **新規作成**：本人にだけヘッダーに「新規」を出す。押すと無題のページを作り、タイトルにカーソルが入った状態で開く
 - **日記**：`/today`（日本時間で日付を決めて `/daily/{date}` へ 302）、`/daily/{date}`（未作成なら空の表示、本人には作成ボタン、前日・翌日リンク）、`POST /api/owner/v1/daily/{date}`（取得または作成。並行して呼ばれても 1 件だけ作る）
 - **自動保存**：`autosave.ts` の状態機械（端末保存 200ms、サーバー保存は 800ms / 最大 5 秒、送信は 1 本ずつ、再送時は同じ mutationId）、IndexedDB の下書き、保存状態の表示（読み上げは結果だけ）
 - **例外時の扱い**
@@ -118,9 +119,9 @@ pnpm exec wrangler r2 bucket create infixer-link-backup-staging
 | コマンド | 結果 |
 |---|---|
 | `pnpm --filter './packages/**' test` | time 7 / content 7 / contracts 5 passed |
-| `pnpm --filter web test:unit` | 20 passed（autosave 15、returnTo、import 境界） |
+| `pnpm --filter web test:unit` | 21 passed（autosave 16、returnTo、import 境界） |
 | `pnpm --filter web test:workers` | 57 passed（daily 5 件を追加） |
-| `pnpm --filter web test:e2e` | 41 passed / 18 skipped（Chromium 限定のシナリオは WebKit でスキップ）。2 回連続で全件 pass。編集系を `--repeat-each=3` で回して 34/34 |
+| `pnpm --filter web test:e2e` | 44 passed / 20 skipped（Chromium 限定のシナリオは WebKit でスキップ）。編集系を `--repeat-each=3` で回して全件 pass |
 | check / lint | 0 errors |
 
 ### 未検証
