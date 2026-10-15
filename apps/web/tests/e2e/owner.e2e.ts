@@ -1,119 +1,81 @@
 /**
- * Owner flow in a real browser with Chromium's virtual WebAuthn authenticator:
- * setup with an operator-issued code → settings → logout → passkey login,
- * then the public/owner boundary as seen by an anonymous visitor.
- * Runs serially against the fresh e2e D1 (`pnpm e2e:server`).
+ * Owner/public boundary and passkey login in a real browser. The owner was registered by
+ * `owner.setup.ts`; login tests use the saved credential in a fresh virtual authenticator.
  */
-import { execFileSync } from 'node:child_process';
-import { expect, test, type Page } from '@playwright/test';
-
-test.describe.configure({ mode: 'serial' });
-test.skip(
-	({ browserName }) => browserName !== 'chromium',
-	'Virtual authenticator is Chromium-only (CDP)'
-);
-
-function mintCode(purpose: 'setup' | 'recovery' = 'setup'): string {
-	const out = execFileSync(
-		'node',
-		['scripts/owner-grant.ts', '--purpose', purpose, '--persist-to', '.wrangler/e2e', '--json'],
-		{
-			encoding: 'utf8',
-			stdio: ['ignore', 'pipe', 'ignore']
-		}
-	);
-	return JSON.parse(out.trim().split('\n').at(-1)!).token;
-}
-
-async function addVirtualAuthenticator(page: Page) {
-	const cdp = await page.context().newCDPSession(page);
-	await cdp.send('WebAuthn.enable');
-	await cdp.send('WebAuthn.addVirtualAuthenticator', {
-		options: {
-			protocol: 'ctap2',
-			transport: 'internal',
-			hasResidentKey: true,
-			hasUserVerification: true,
-			isUserVerified: true,
-			automaticPresenceSimulation: true
-		}
-	});
-}
-
-let ownerPage: Page;
-
-test.beforeAll(async ({ browser }) => {
-	ownerPage = await (await browser.newContext()).newPage();
-	await addVirtualAuthenticator(ownerPage);
-});
+import { expect, test } from '@playwright/test';
+import {
+	BASE,
+	addVirtualAuthenticator,
+	createPage,
+	mintCode,
+	ownerContext,
+	unique
+} from './helpers';
 
 test('anonymous visitors see no login entry point or owner UI', async ({ page }) => {
 	await page.goto('/');
 	await expect(page.locator('a[href*="/owner"]')).toHaveCount(0);
 	const res = await page.request.post('/api/owner/v1/pages', {
 		data: { mutationId: crypto.randomUUID(), title: 'x', format: 'link-text-v1', source: '' },
-		headers: { origin: 'http://localhost:4173' }
+		headers: { origin: BASE }
 	});
 	expect(res.status()).toBe(401);
 });
 
-test('setup registers the first passkey with an operator code', async () => {
-	await ownerPage.goto('/owner/setup');
-	await ownerPage.getByLabel('セットアップコード').fill(mintCode());
-	await ownerPage.getByLabel('このパスキーの名前（任意）').fill('E2E key');
-	await ownerPage.getByRole('button', { name: 'パスキーを登録' }).click();
-	await expect(ownerPage).toHaveURL(/\/owner\/settings$/);
-	await expect(ownerPage.getByTestId('passkeys')).toContainText('E2E key');
-});
-
-test('setup is closed once an owner exists', async ({ page }) => {
+test('setup is closed once an owner exists', async ({ page, browserName }) => {
+	// Mints a code via `wrangler d1 execute`; run once to avoid concurrent writes to the local DB file.
+	test.skip(browserName !== 'chromium', 'browser-independent; runs on Chromium only');
 	await page.goto('/owner/setup');
 	await page.getByLabel('セットアップコード').fill(mintCode());
 	await page.getByRole('button', { name: 'パスキーを登録' }).click();
 	await expect(page.getByRole('alert')).toBeVisible();
 });
 
-test('owner creates a page via the API; it renders publicly without owner data', async ({
+test('owner-created page renders publicly without owner data or editor code', async ({
 	browser
 }) => {
-	const session = await ownerPage.request.get('/api/auth/v1/session').then((r) => r.json());
-	expect(session.authenticated).toBe(true);
-	const created = await ownerPage.request.post('/api/owner/v1/pages', {
-		data: {
-			mutationId: crypto.randomUUID(),
-			title: 'E2E の日記',
-			format: 'link-text-v1',
-			source: '一行目\n [読書] の続き'
-		},
-		headers: { origin: 'http://localhost:4173', 'x-csrf-token': session.csrfToken }
+	const owner = await ownerContext(browser);
+	const title = unique('公開ページ');
+	const { pageId } = await createPage(owner.request, title, '一行目\n [読書] の続き');
+
+	const anon = await (await browser.newContext()).newPage();
+	const scripts: string[] = [];
+	anon.on('response', async (r) => {
+		if (r.request().resourceType() === 'script') scripts.push(await r.text().catch(() => ''));
 	});
-	expect(created.status()).toBe(201);
-	const { pageId } = await created.json();
-
-	const anon = await (await browser.newContext({ javaScriptEnabled: false })).newPage();
 	await anon.goto('/');
-	await anon.getByRole('link', { name: 'E2E の日記' }).click();
+	await anon.getByRole('link', { name: title }).click();
 	await expect(anon).toHaveURL(new RegExp(`/p/${pageId}/`));
-	await expect(anon.locator('h1')).toHaveText('E2E の日記');
+	await expect(anon.locator('h1')).toHaveText(title);
 	await expect(anon.getByTestId('page-source')).toContainText('[読書] の続き');
-	const html = await anon.content();
-	expect(html).not.toContain(session.csrfToken);
-	expect(html).not.toContain('/owner');
+	await anon.waitForLoadState('networkidle');
+	await expect(anon.getByTestId('edit')).toHaveCount(0);
+	expect(scripts.some((s) => s.includes('cm-content'))).toBe(false); // no CodeMirror for visitors
+	expect(await anon.content()).not.toContain('/owner');
 });
 
-test('logout, then log back in with the passkey and return to the page', async () => {
-	await ownerPage.goto('/owner/settings');
-	await ownerPage.getByRole('button', { name: 'この端末からログアウト' }).click();
-	await expect(ownerPage).toHaveURL('http://localhost:4173/');
-	await ownerPage.goto('/owner/settings');
-	await expect(ownerPage).toHaveURL(/\/owner\/login\?returnTo=%2Fowner%2Fsettings/);
-	await ownerPage.getByRole('button', { name: 'パスキーでログイン' }).click();
-	await expect(ownerPage).toHaveURL(/\/owner\/settings$/);
-	await expect(ownerPage.getByTestId('sessions')).toContainText('この端末');
+test.describe('passkey login (Chromium virtual authenticator)', () => {
+	test.skip(({ browserName }) => browserName !== 'chromium', 'CDP WebAuthn is Chromium-only');
+
+	test('logs in, returns to the requested page, and logs out', async ({ browser }) => {
+		const context = await browser.newContext();
+		const page = await context.newPage();
+		await addVirtualAuthenticator(page, true);
+		await page.goto('/owner/settings');
+		await expect(page).toHaveURL(/\/owner\/login\?returnTo=%2Fowner%2Fsettings/);
+		await page.getByRole('button', { name: 'パスキーでログイン' }).click();
+		await expect(page).toHaveURL(/\/owner\/settings$/);
+		await expect(page.getByTestId('sessions')).toContainText('この端末');
+		await page.getByRole('button', { name: 'この端末からログアウト' }).click();
+		await expect(page).toHaveURL(`${BASE}/`);
+		const session = await (await page.request.get('/api/auth/v1/session')).json();
+		expect(session.authenticated).toBe(false);
+	});
 });
 
-test('owner pages are not cacheable or indexable', async () => {
-	const res = await ownerPage.request.get('/owner/settings');
+test('owner pages are not cacheable or indexable', async ({ browser }) => {
+	const owner = await ownerContext(browser);
+	const res = await owner.request.get('/owner/settings');
 	expect(res.headers()['cache-control']).toBe('no-store');
 	expect(res.headers()['x-robots-tag']).toContain('noindex');
 	expect(res.headers()['content-security-policy']).toContain("frame-ancestors 'none'");

@@ -15,8 +15,10 @@ export default defineConfig({
 		timeout: 180_000
 	},
 	projects: [
-		{ name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-		{ name: 'webkit', use: { ...devices['Desktop Safari'] } },
-		{ name: 'mobile-webkit', use: { ...devices['iPhone 15'] } }
+		// Registers the owner once (virtual authenticator) and saves the session for other projects.
+		{ name: 'owner-setup', testMatch: /owner\.setup\.ts/, use: { ...devices['Desktop Chrome'] } },
+		{ name: 'chromium', use: { ...devices['Desktop Chrome'] }, dependencies: ['owner-setup'] },
+		{ name: 'webkit', use: { ...devices['Desktop Safari'] }, dependencies: ['owner-setup'] },
+		{ name: 'mobile-webkit', use: { ...devices['iPhone 15'] }, dependencies: ['owner-setup'] }
 	]
 });
