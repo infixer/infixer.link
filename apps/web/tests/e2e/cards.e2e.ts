@@ -69,6 +69,7 @@ test('a YouTube line plays in the page only after pressing play', async ({ brows
 	const errors = cspErrors(page);
 
 	await page.goto(`/p/${pageId}/x`);
+	await page.waitForLoadState('networkidle'); // hydrated: the click must reach the handler
 	const video = page.getByTestId('page-source').getByTestId('video');
 	const box = await video.boundingBox();
 	expect(box!.width / box!.height).toBeCloseTo(16 / 9, 1);
