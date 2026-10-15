@@ -39,7 +39,8 @@
 		<a href={resolve('/')} class="brand">infixer.link</a>
 		<nav>
 			<NewPageButton />
-			<a href={resolve('/today')} class="today" data-sveltekit-preload-data="off">今日</a>
+			<a href={resolve('/search')} class="navlink" data-testid="nav-search">検索</a>
+			<a href={resolve('/today')} class="navlink" data-sveltekit-preload-data="off">今日</a>
 			<ThemeSwitch />
 		</nav>
 	</div>
@@ -88,7 +89,7 @@
 		gap: var(--space-2);
 	}
 
-	.today {
+	.navlink {
 		display: inline-flex;
 		align-items: center;
 		min-height: 44px;
@@ -97,7 +98,7 @@
 		text-decoration: none;
 	}
 
-	.today:hover {
+	.navlink:hover {
 		color: var(--color-header-muted);
 	}
 
