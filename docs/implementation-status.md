@@ -11,7 +11,8 @@
 | 4 画像アップロードと高速配信 | **実装完了（ローカル）。R2 のカスタムドメインと実機の写真選択は未検証** | `phase-4`（`phase-3` の上） |
 | 5 検索・一覧・公開表示の性能 | **実装完了（ローカル）。本番 D1 での時間と実機の IME は未検証。一覧のカードと YouTube の埋め込みを追加** | `phase-5`（`phase-4` の上） |
 | 6 オフラインと競合解決の完成 | **実装完了（ローカル）。実機と Service Worker の更新の流れは未検証** | `phase-6`（`phase-5` の上） |
-| 7〜10 | 未着手 | — |
+| 7 CLI と可搬性 | **実装完了（ローカル）。本番での CLI の利用は未検証** | `phase-7`（`phase-6` の上） |
+| 8〜10 | 未着手 | — |
 
 ## Phase 0（2026-10-15）
 
@@ -304,7 +305,60 @@ pnpm exec wrangler r2 bucket create infixer-link-backup-staging
 - Service Worker の更新の流れ（バナー → 下書きの保存 → 再読み込み）
 - Web Locks のないブラウザでの動作、ブラウザによる保存領域の削除（eviction）
 
-## 次：Phase 7 への引き継ぎ
+## Phase 7（2026-10-16）
+
+### 成果物（ADR 0016、runbook `ops/runbooks/cli.md`）
+
+- **API トークン**
+  - 発行：設定画面から。5 分以内のパスキー再認証が必要で、トークンは一度だけ表示する。DB にはハッシュだけを保存する
+  - スコープは read / write / backup。期限は 1〜365 日（必ず期限付き）。失効でき、最終使用時刻を記録する（マイグレーション 0007）
+- **Bearer 認証**
+  - `/api/owner/v1/*` で、cookie の代わりに使える。CSRF の検査はしない。Host は許可したオリジンに限る
+  - スコープはルートごとに検査する
+  - cookie と同時に送ると 400。パスキー・セッション・トークンの管理には使えない
+- **API**
+  - `GET /api/owner/v1/daily/{date|today}`。今日は、サーバーが `SITE_TIME_ZONE` で決める
+  - `GET /export/start`・`/export/pages`（changes の位置で固定し、ページング）・`/export/assets`
+  - `GET`・`POST`・`DELETE /tokens`
+- **CLI（`apps/cli`、`infixer`）**
+  - コマンド：get / search / today / append / put / create / export / backup / import / auth
+  - `--json`、終了コード 0〜6
+  - TypeScript を Node でそのまま実行する（ビルドなし）
+- **持ち出し形式**
+  - `manifest.json`（ハッシュ付き）、`pages/`、`metadata/`、`assets-manifest.json`、`assets/`（任意）
+  - ファイル名は id だけ。出力先の外に出るパスは拒否し、上書きしない
+- **復元（`import`）**：空のサイトに、id・別名・リンク・日記の日付・画像を戻す。ハッシュの照合をしてから書き込み、何度実行しても同じ結果になる
+- **CI**：CLI の lint とテストを追加
+
+### テスト結果（ローカル、2026-10-16）
+
+| コマンド | 結果 |
+|---|---|
+| `pnpm --filter './packages/**' test` | content 37 / contracts 5 / time 7 / sync 11 passed |
+| `pnpm --filter @infixer-link/cli test` | 10 passed（URL の検査、追記の改行、通信の再送で同じ mutationId、競合で終了コード 4（再追加しない）、認証・通信の終了コード（トークンを表示しない）、today の作成は指定したときだけ、タイトルの解決はトークンなし、ファイル名の検査（path traversal）、上書きしない・空でない出力先を拒否、画像のハッシュの照合と別オリジンへトークンを送らない） |
+| `pnpm --filter web test:unit` | 51 passed |
+| `pnpm --filter web test:workers` | 118 passed（tokens 13 件：発行の再認証、一度だけ表示・ハッシュの保存、入力の検査、トークンで管理できない、cookie なし・Origin なし・CSRF なしで使える、read だけの制限、無効・期限切れ・失効、cookie との混在と他のホスト、最終使用時刻、recovery での失効、today、export の固定とページング、削除と別名、画像の一覧。cli-roundtrip 2 件：export → 空のサイトへ import でページ・日記・別名・リンク・画像が一致、再実行で変化なし、改ざんの検出） |
+| `pnpm --filter web test:e2e` | 116 passed / 76 skipped。cli.e2e：設定画面でトークンを発行 → CLI だけで今日の日記に追記・標準入力から作成・検索・`put` の競合で終了コード 4・画像込みの export（manifest）・同じ出力先を拒否 → 画面で失効すると終了コード 5。全体を 2 回実行し、どちらも全件 pass |
+| check / lint | 0 errors（web と cli） |
+
+### 開発中に見つけて直したこと
+
+- `get` の出力の末尾に改行を足していたため、`get` → `put` で本文が変わった → パイプのときは本文をそのまま出力する
+- 新しい CLI の E2E がパスキーでログインし直していたため、同じ仮想の資格情報を使う別のログインのテストと署名カウンターがぶつかり、サーバーが（正しく）拒否した → 共有の本人セッションを使う
+- YouTube の再生の E2E が、ページの hydration 前にクリックすることがあった → 通信が落ち着くまで待つ
+
+### 未検証
+
+- 本番の URL と R2 のカスタムドメインに対する CLI（staging 未作成）
+- Windows での実行、1 万ページ規模の export / import の時間
+
+## 次：Phase 8 への引き継ぎ
+
+- 運用・復旧・v1 公開の準備：staging / prod の作成（**要承認**）、日次バックアップ（BACKUP バケット）、期限切れの challenge・rate limit・pending と使われない画像の掃除（Cron）、監視
+- 復元の演習：`infixer backup` → 空の staging に `infixer import` → 件数・本文のハッシュ・画像のハッシュ・リンク・検索を確認する（cli-roundtrip のテストと同じ手順）
+- Phase 1〜6 の未検証のこと（実機のパスキー・IME・オフライン、本番 D1 の性能）を staging で確かめる
+
+## 旧：Phase 7 への引き継ぎ（Phase 6 時点）
 
 - CLI（`infixer`）と持ち出し。`api_tokens`（Bearer）の発行と、`hono/client` の型付きクライアント
 - outbox と三者比較の `@infixer-link/sync` を、CLI の `infixer push` の競合処理でも使える

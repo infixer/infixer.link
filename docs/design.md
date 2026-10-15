@@ -10,6 +10,7 @@
 > - 日本語検索は FTS5 trigram（3 文字以上）と LIKE（1〜2 文字）。検索索引は安定した rowid で更新し、公開 HTML には ETag を付けない（[ADR 0013](adr/0013-search-and-public-performance.md)）。
 > - 一覧は Cosense 風のカード（最初の画像・カード・動画のサムネイル）。YouTube の URL の行は、押すと再生される埋め込みプレイヤー（[ADR 0014](adr/0014-list-cards-and-youtube.md)）。
 > - オフラインは本人の端末だけ（Service Worker・outbox・オフラインでの作成）。競合は行単位の三者比較で、本人が選ぶまで保存しない（[ADR 0015](adr/0015-offline-and-conflicts.md)）。
+> - CLI `infixer`（apps/cli）とスコープ付きの API トークン、持ち出し形式、復元（import）（[ADR 0016](adr/0016-cli-and-tokens.md)）。§8 の `hono/client` の型付きクライアントは使わず、契約は `@infixer-link/contracts` で共有する。
 > - Phase 0 の実証結果と設計への影響は [`implementation-status.md`](implementation-status.md) と [`adr/`](adr/) を参照。
 > - 以下は受領した設計本文（「次のプロンプト例」のみ省略、他は変更なし）。
 
