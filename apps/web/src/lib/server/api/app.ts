@@ -16,6 +16,7 @@ import {
 	AuthenticationOptionsRequest,
 	AuthenticationVerifyRequest,
 	CreatePageRequest,
+	DailyPageRequest,
 	DeletePageRequest,
 	PasskeyNameRequest,
 	RegistrationVerifyRequest,
@@ -331,6 +332,15 @@ export function createApi(deps: ApiDeps) {
 		.post('/pages', ...json(CreatePageRequest), async (c) => {
 			const result = await pages.createPage(db, c.req.valid('json'), c.get('now'));
 			return c.json(result, result.replayed ? 200 : 201);
+		})
+		.post('/daily/:date', ...json(DailyPageRequest), async (c) => {
+			const result = await pages.getOrCreateDaily(
+				db,
+				c.req.param('date'),
+				c.req.valid('json').mutationId,
+				c.get('now')
+			);
+			return c.json(result, result.created ? 201 : 200);
 		})
 		.get('/pages/:id', pageId, async (c) => {
 			const page = await pages.getOwnerPage(db, c.req.param('id'));
