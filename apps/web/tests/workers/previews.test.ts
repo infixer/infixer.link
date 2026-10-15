@@ -146,3 +146,79 @@ describe('owner endpoint and cache', () => {
 		).toBe(422);
 	});
 });
+
+describe('card images (ADR 0012)', () => {
+	beforeEach(resetDb);
+
+	it('copies og:image into R2 and returns the media URL, never the remote one', async () => {
+		const { pngBytes } = await import('../helpers/images');
+		const { fetcher, calls } = fakeFetcher({
+			'https://example.org/a': html(),
+			'https://example.org/img/card.png': () =>
+				new Response(pngBytes(42), { headers: { 'content-type': 'image/png' } })
+		});
+		const owner = new ApiClient(
+			createApi({
+				db: env.DB,
+				config,
+				fetcher,
+				media: env.MEDIA,
+				pending: env.PENDING,
+				mediaBaseUrl: '/media'
+			})
+		);
+		await owner.setupOwner();
+		const res = await owner.json('/api/owner/v1/link-previews', {
+			body: { urls: ['https://example.org/a'] }
+		});
+		const image = res.body.previews['https://example.org/a'].image;
+		expect(image).toMatchObject({ width: 1, height: 1 });
+		expect(image.url).toMatch(/^\/media\/originals\/[0-9a-f]{64}\.png$/);
+		expect(await env.MEDIA.head(image.url.replace('/media/', ''))).not.toBeNull();
+		expect(calls).toContain('https://example.org/img/card.png');
+	});
+
+	it('skips images that are not images, too large, or on a private host', async () => {
+		const page = (img: string) => () =>
+			new Response(
+				`<html><head><meta property="og:title" content="T"><meta property="og:image" content="${img}"></head></html>`,
+				{
+					headers: { 'content-type': 'text/html' }
+				}
+			);
+		const { fetcher } = fakeFetcher({
+			'https://example.org/svg': page('https://example.org/x.svg'),
+			'https://example.org/x.svg': () =>
+				new Response('<svg xmlns="http://www.w3.org/2000/svg"/>', {
+					headers: { 'content-type': 'image/svg+xml' }
+				}),
+			'https://example.org/big': page('https://example.org/big.png'),
+			'https://example.org/big.png': () =>
+				new Response(new Uint8Array(6 * 1024 * 1024), { headers: { 'content-type': 'image/png' } }),
+			'https://example.org/private': page('http://10.0.0.1/x.png')
+		});
+		const owner = new ApiClient(
+			createApi({
+				db: env.DB,
+				config,
+				fetcher,
+				media: env.MEDIA,
+				pending: env.PENDING,
+				mediaBaseUrl: '/media'
+			})
+		);
+		await owner.setupOwner();
+		const res = await owner.json('/api/owner/v1/link-previews', {
+			body: {
+				urls: ['https://example.org/svg', 'https://example.org/big', 'https://example.org/private']
+			}
+		});
+		for (const p of Object.values(res.body.previews) as {
+			ok: boolean;
+			title: string;
+			image: unknown;
+		}[]) {
+			expect(p).toMatchObject({ ok: true, title: 'T', image: null });
+		}
+	});
+});

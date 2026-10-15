@@ -257,6 +257,34 @@ describe('Autosave', () => {
 	});
 });
 
+describe('hold (images uploading)', () => {
+	it('keeps the snapshot local while held and sends after release', async () => {
+		const { clock, server, auto, store } = setup();
+		let uploading = true;
+		auto.setHold((snap) => uploading && snap.source.includes('[asset:'));
+		auto.edit({ title: 't', source: 'text [asset:x]' });
+		await clock.advance(6000);
+		expect(auto.state).toBe('uploading');
+		expect(server.calls).toHaveLength(0);
+		expect(store.drafts.get('p1')?.source).toBe('text [asset:x]');
+		uploading = false;
+		auto.retry();
+		await clock.advance(0);
+		expect(server.page.source).toBe('text [asset:x]');
+		expect(auto.state).toBe('synced');
+	});
+
+	it('removing the image marker lets the text be published', async () => {
+		const { clock, server, auto } = setup();
+		auto.setHold((snap) => snap.source.includes('[asset:'));
+		auto.edit({ title: 't', source: 'text [asset:x]' });
+		await clock.advance(1000);
+		auto.edit({ title: 't', source: 'text' });
+		await clock.advance(1000);
+		expect(server.page.source).toBe('text');
+	});
+});
+
 describe('adoptServer', () => {
 	it('adopts a newer server copy only when there are no local edits', async () => {
 		const { clock, auto } = setup();

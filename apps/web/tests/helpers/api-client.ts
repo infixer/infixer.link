@@ -14,6 +14,7 @@ export const config = makeAuthConfig({ RP_ID, APP_ORIGINS: ORIGIN });
 
 const TABLES = [
 	'link_previews',
+	'assets',
 	'pages_fts',
 	'changes',
 	'page_assets',
@@ -58,7 +59,16 @@ export class ApiClient {
 	readonly cookies = new Map<string, string>();
 	csrfToken?: string;
 
-	constructor(readonly api = createApi({ db: env.DB, config, now: () => Date.now() })) {}
+	constructor(
+		readonly api = createApi({
+			db: env.DB,
+			config,
+			now: () => Date.now(),
+			pending: env.PENDING,
+			media: env.MEDIA,
+			mediaBaseUrl: '/media'
+		})
+	) {}
 
 	async call(path: string, options: CallOptions = {}): Promise<Response> {
 		const method = options.method ?? (options.body === undefined ? 'GET' : 'POST');
@@ -80,8 +90,8 @@ export class ApiClient {
 			body:
 				options.body === undefined
 					? undefined
-					: typeof options.body === 'string'
-						? options.body
+					: typeof options.body === 'string' || options.body instanceof Uint8Array
+						? (options.body as BodyInit)
 						: JSON.stringify(options.body)
 		});
 		for (const line of res.headers.getSetCookie()) {

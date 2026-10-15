@@ -12,12 +12,14 @@
 	import { EditorView, keymap, drawSelection } from '@codemirror/view';
 	import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 	import type {
+		AssetDto,
 		LinkPreviewDto,
 		OwnerPageDto,
 		PageRefDto,
 		TitleSuggestionDto
 	} from '@infixer-link/contracts';
-	import { livePreview, type LiveData } from './live.ts';
+	import { livePreview, type LiveData, type LivePreview } from './live.ts';
+	import { Uploads } from './uploads.svelte.ts';
 	import { Autosave, STATE_LABEL, restore, type SaveState, type ServerPage } from './autosave.ts';
 	import { idbDraftStore } from './draft-store.ts';
 	import { httpTransport, type CsrfSource } from './transport.ts';
@@ -32,6 +34,7 @@
 		/** Link names and card previews resolved on the server for the initial content. */
 		names: Record<string, PageRefDto>;
 		previews: Record<string, LinkPreviewDto>;
+		assets: Record<string, AssetDto>;
 		onready: () => void;
 		ondeleted: (revision: number) => void;
 	}
@@ -43,6 +46,7 @@
 		focus = null,
 		names,
 		previews,
+		assets,
 		onready,
 		ondeleted
 	}: Props = $props();
@@ -157,6 +161,14 @@
 		if (start.restoredDraft && !start.conflict)
 			notice = '端末に保存されていた下書きを復元しました。';
 
+		live = livePreview({
+			data: { names, previews, assets },
+			navigate,
+			fetchMissing,
+			suggest,
+			localImage: (id) => uploads.preview(id)
+		});
+
 		view = new EditorView({
 			parent: host,
 			state: EditorState.create({
@@ -165,7 +177,16 @@
 					history(),
 					drawSelection(),
 					EditorView.lineWrapping,
-					livePreview({ data: { names, previews }, navigate, fetchMissing, suggest }),
+					live.extension,
+					EditorView.domEventHandlers({
+						paste: (event, v) =>
+							takeImages(event.clipboardData?.files, event) || pasteUrlAsCard(v, event),
+						drop: (event, v) => {
+							const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
+							if (pos !== null) v.dispatch({ selection: EditorSelection.cursor(pos) });
+							return takeImages(event.dataTransfer?.files, event);
+						}
+					}),
 					keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
 					EditorView.contentAttributes.of({ 'aria-label': '本文', spellcheck: 'false' }),
 					EditorView.cspNonce.of(
@@ -200,6 +221,9 @@
 			transport: httpTransport(csrf),
 			clock
 		});
+		// Pages referencing images that are still uploading stay local (design §10.2).
+		auto.setHold((snapshot) => uploads.isPending(snapshot.source));
+		void uploads.resume(start.current.source);
 		auto.subscribe(async (state) => {
 			saveState = state;
 			if (state === 'synced') updatedAt = new Date().toISOString();
@@ -257,8 +281,124 @@
 	onDestroy(() => {
 		void auto?.flushLocal();
 		auto?.dispose();
+		uploads.dispose();
 		view?.destroy();
 	});
+
+	// --- images -------------------------------------------------------------
+
+	let live: LivePreview | undefined;
+	let fileInput = $state<HTMLInputElement>();
+	let exifNoticeShown = false;
+
+	// The editor is re-created per page ({#key} in the page), so the initial values are right.
+	// svelte-ignore state_referenced_locally
+	const uploads = new Uploads(
+		pageId,
+		csrf,
+		(asset) => {
+			if (view) live?.refresh(view, { assets: { [asset.id]: asset } });
+			auto?.retry();
+		},
+		() => {
+			if (view) live?.refresh(view);
+			auto?.retry();
+		}
+	);
+
+	let failedUploads = $derived(
+		Object.entries(uploads.states).filter(([, s]) => s.status === 'failed')
+	);
+
+	/** Inserts `[asset:id]` lines for the images at the cursor and starts uploading them. */
+	function insertImages(files: File[]) {
+		if (!view || files.length === 0) return;
+		const problems = files.map((f) => Uploads.check(f)).filter(Boolean);
+		const ok = files.filter((f) => !Uploads.check(f));
+		if (problems.length) notice = problems[0]!;
+		if (ok.length === 0) return;
+		const markers = ok.map((f) => `[asset:${uploads.add(f, f.name)}]`);
+		const { state } = view;
+		const pos = state.selection.main.head;
+		const line = state.doc.lineAt(pos);
+		const before = line.text.slice(0, pos - line.from).trim() ? '\n' : '';
+		const after = line.text.slice(pos - line.from).trim() ? '\n' : '';
+		const insert = `${before}${markers.join('\n')}${after}`;
+		view.dispatch({
+			changes: { from: pos, insert },
+			selection: EditorSelection.cursor(pos + insert.length),
+			userEvent: 'input.paste'
+		});
+		view.focus();
+		// Inserting an image is a milestone: persist the draft now, not after the debounce.
+		void auto?.flushLocal();
+		if (!exifNoticeShown) {
+			exifNoticeShown = true;
+			notice = '画像は原本のまま公開されます（撮影位置などの情報を含む場合があります）。';
+		}
+	}
+
+	function takeImages(files: FileList | undefined, event: Event): boolean {
+		const images = [...(files ?? [])].filter((f) => f.type.startsWith('image/'));
+		if (images.length === 0) return false;
+		event.preventDefault();
+		insertImages(images);
+		return true;
+	}
+
+	/**
+	 * A pasted URL on its own becomes a link card (ADR 0010): it gets its own line and the
+	 * cursor moves to the next line, so the card renders right away. Inside link syntax
+	 * (`[label](` or `[`) the URL is pasted as plain text.
+	 */
+	function pasteUrlAsCard(v: EditorView, event: ClipboardEvent): boolean {
+		const text = event.clipboardData?.getData('text/plain').trim() ?? '';
+		if (!/^https?:\/\/\S+$/i.test(text) || text.length > 2048) return false;
+		const { state } = v;
+		const range = state.selection.main;
+		const line = state.doc.lineAt(range.from);
+		const before = line.text.slice(0, range.from - line.from);
+		if (/[[(]\s*$/.test(before) || /\[[^\]]*$/.test(before)) return false;
+		event.preventDefault();
+		const lead = before.trim() ? '\n' : '';
+		const indent = before.trim() ? (/^[ \t\u3000]*/.exec(line.text)?.[0] ?? '') : '';
+		// Always end with a line break so the cursor leaves the URL line and the card shows.
+		const insert = `${lead}${indent}${text}\n`;
+		v.dispatch({
+			changes: { from: range.from, to: range.to, insert },
+			selection: EditorSelection.cursor(range.from + insert.length),
+			scrollIntoView: true,
+			userEvent: 'input.paste'
+		});
+		return true;
+	}
+
+	function pickImages() {
+		fileInput?.click();
+	}
+
+	function picked(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		insertImages([...(input.files ?? [])]);
+		input.value = '';
+	}
+
+	function removeFailed(assetId: string) {
+		if (!view) return;
+		const doc = view.state.doc;
+		const at = doc.toString().indexOf(`[asset:${assetId}]`);
+		if (at === -1) return;
+		const line = doc.lineAt(at);
+		const marker = `[asset:${assetId}]`;
+		// An image on its own line is removed with its line break; inline ones just vanish.
+		const change =
+			line.text.trim() === marker
+				? line.number > 1
+					? { from: line.from - 1, to: line.to }
+					: { from: line.from, to: Math.min(line.to + 1, doc.length) }
+				: { from: at, to: at + marker.length };
+		view.dispatch({ changes: change, userEvent: 'delete' });
+	}
 
 	function downloadLocal() {
 		if (!auto) return;
@@ -319,7 +459,7 @@
 	const loginHref = () => resolve(`/owner/login?returnTo=${encodeURIComponent(location.pathname)}`);
 </script>
 
-<svelte:window ononline={() => auto?.retry()} />
+<svelte:window ononline={() => auto?.retry()} onpagehide={() => void auto?.flushLocal()} />
 <svelte:document onvisibilitychange={onVisibility} />
 
 <div class="editor" data-testid="editor">
@@ -336,10 +476,30 @@
 		<span class="status" data-state={saveState} data-testid="save-state"
 			>{saveState === 'clean' ? '' : STATE_LABEL[saveState]}</span
 		>
+		<button type="button" class="link" onclick={pickImages} data-testid="add-image">画像</button>
 		<button type="button" class="link" onclick={remove}>削除</button>
+		<input
+			class="file"
+			type="file"
+			accept="image/jpeg,image/png,image/gif,image/webp"
+			multiple
+			bind:this={fileInput}
+			onchange={picked}
+			data-testid="image-input"
+		/>
 	</p>
 
 	{#if notice}<p class="notice" role="status">{notice}</p>{/if}
+
+	{#each failedUploads as [id, upload] (id)}
+		<p class="notice" role="alert">
+			画像を送信できませんでした：{upload.error}
+			{#if upload.retryable}
+				<button type="button" class="link" onclick={() => uploads.retry(id)}>再送信</button>
+			{/if}
+			<button type="button" class="link" onclick={() => removeFailed(id)}>画像を外す</button>
+		</p>
+	{/each}
 
 	{#if saveState === 'auth-required'}
 		<p class="notice">
@@ -479,6 +639,10 @@
 
 	.body :global(.cm-content) {
 		font-family: var(--font-body);
+	}
+
+	.file {
+		display: none;
 	}
 
 	.sr-only {

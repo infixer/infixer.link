@@ -166,3 +166,51 @@ test('related pages show backlinks and pages sharing a link', async ({ browser }
 	await anon.goto(`/p/${hubPage.pageId}/x`);
 	await expect(anon.getByTestId('related')).toContainText(bTitle);
 });
+
+test.describe('pasting a URL (Chromium)', () => {
+	test.skip(({ browserName }) => browserName !== 'chromium', 'clipboard events checked once');
+
+	async function paste(page: Page, text: string) {
+		await page.evaluate((t) => {
+			const dt = new DataTransfer();
+			dt.setData('text/plain', t);
+			document
+				.querySelector('.cm-content')!
+				.dispatchEvent(
+					new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })
+				);
+		}, text);
+	}
+
+	test('a pasted URL gets its own line and immediately shows as a card', async ({ browser }) => {
+		const owner = await ownerContext(browser);
+		const cardTitle = unique('貼り付けたカード');
+		const target = await createPage(owner.request, cardTitle, '説明');
+		const url = `${BASE}/p/${target.pageId}/x`;
+		const { pageId } = await createPage(owner.request, unique('貼り付け'), '文の途中');
+		const page = await owner.newPage();
+		await page.goto(`/p/${pageId}/x`);
+		await editorReady(page);
+		await cursorToEnd(page);
+		await paste(page, url);
+		await expect(page.locator('.cm-content .card')).toContainText(cardTitle, { timeout: 15_000 });
+		await page.keyboard.type('続き');
+		await expect(saveState(page)).toHaveText('公開済み', { timeout: 10_000 });
+		expect((await getOwnerPage(owner.request, pageId)).source).toBe(`文の途中\n${url}\n続き`);
+	});
+
+	test('a URL pasted inside link syntax stays inline', async ({ browser }) => {
+		const owner = await ownerContext(browser);
+		const { pageId } = await createPage(owner.request, unique('リンク内'), '');
+		const page = await owner.newPage();
+		await page.goto(`/p/${pageId}/x`);
+		await editorReady(page);
+		await page.locator('.cm-content').click();
+		await page.keyboard.type('[資料](');
+		await paste(page, 'https://example.org/doc');
+		await expect(saveState(page)).toHaveText('公開済み', { timeout: 10_000 });
+		expect((await getOwnerPage(owner.request, pageId)).source).toBe(
+			'[資料](https://example.org/doc)'
+		);
+	});
+});

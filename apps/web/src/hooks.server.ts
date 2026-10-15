@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { Handle } from '@sveltejs/kit/hooks';
 import { adjustCsp } from '#lib/server/csp.ts';
 
@@ -15,9 +16,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	headers.set('x-frame-options', 'DENY');
 	headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=()');
 
-	// See lib/server/csp.ts: nonce for CodeMirror's styles in production, untouched in dev.
 	const csp = headers.get('content-security-policy');
-	if (csp) headers.set('content-security-policy', adjustCsp(csp, undefined));
+	if (csp) headers.set('content-security-policy', adjustCsp(csp, env.MEDIA_BASE_URL));
 
 	if (path.startsWith('/owner')) {
 		headers.set('cache-control', 'no-store');

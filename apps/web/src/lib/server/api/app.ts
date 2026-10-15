@@ -34,6 +34,8 @@ import * as auth from '../auth/service';
 import * as pages from '../pages/service';
 import * as graph from '../pages/graph';
 import { refreshPreviews, type Fetcher } from '../previews';
+import { completeAsset, readCapped, storePending } from '../assets';
+import { IMAGE_LIMITS } from '../images';
 
 export interface ApiDeps {
 	db: D1Database;
@@ -43,6 +45,11 @@ export interface ApiDeps {
 	fetcher?: Fetcher;
 	/** Local development only: allow previews of http://localhost URLs. */
 	allowLocalPreviews?: boolean;
+	/** R2: private upload area and public media bucket (ADR 0012). */
+	pending?: R2Bucket;
+	media?: R2Bucket;
+	/** Public base URL for MEDIA objects ("/media" locally). */
+	mediaBaseUrl?: string;
 }
 
 type AppEnv = {
@@ -172,14 +179,33 @@ export function createApi(deps: ApiDeps) {
 		if (!c.res.headers.has('cache-control')) c.header('cache-control', 'no-store');
 	});
 
-	app.use(
-		bodyLimit({
+	app.use(async (c, next) => {
+		// Image uploads have their own, larger limit enforced while reading (assets.ts).
+		if (c.req.method === 'PUT' && /^\/api\/owner\/v1\/assets\/[^/]+$/.test(c.req.path))
+			return next();
+		return bodyLimit({
 			maxSize: 512 * 1024,
 			onError: () => {
 				throw new ApiError('payload_too_large', 'Request body is too large');
 			}
-		})
-	);
+		})(c, next);
+	});
+
+	const mediaDeps = () => {
+		if (!deps.pending || !deps.media)
+			throw new ApiError('internal_error', 'Media storage is not configured');
+		return {
+			db,
+			pending: deps.pending,
+			media: deps.media,
+			mediaBaseUrl: deps.mediaBaseUrl ?? '/media'
+		};
+	};
+
+	const assetId: MiddlewareHandler<AppEnv> = async (c, next) => {
+		if (!UUID_RE.test(c.req.param('id') ?? '')) throw new ApiError('not_found', 'Asset not found');
+		await next();
+	};
 
 	app.onError((error, c) => {
 		if (error instanceof HTTPException && !(error instanceof ApiError)) {
@@ -380,9 +406,33 @@ export function createApi(deps: ApiDeps) {
 				previews: await refreshPreviews(db, c.req.valid('json').urls, {
 					fetcher: deps.fetcher ?? ((input, init) => fetch(input, init)),
 					allowLocal: deps.allowLocalPreviews ?? false,
-					now: c.get('now')
+					now: c.get('now'),
+					media: deps.media
+						? { bucket: deps.media, baseUrl: deps.mediaBaseUrl ?? '/media' }
+						: undefined
 				})
 			})
+		)
+		.put('/assets/:id', assetId, async (c) => {
+			const type = (c.req.header('content-type') ?? '').toLowerCase();
+			if (!type.startsWith('image/') && type !== 'application/octet-stream') {
+				throw new ApiError('unsupported_media_type', 'Expected an image');
+			}
+			const declared = Number(c.req.header('content-length') ?? 0);
+			if (declared > IMAGE_LIMITS.maxBytes) {
+				throw new ApiError('payload_too_large', '画像は 10MiB までです');
+			}
+			const bytes = await readCapped(c.req.raw.body, IMAGE_LIMITS.maxBytes);
+			const name = c.req.header('x-file-name');
+			return c.json(
+				await storePending(mediaDeps(), c.req.param('id'), bytes, {
+					name: name ? decodeURIComponent(name) : undefined,
+					now: c.get('now')
+				})
+			);
+		})
+		.post('/assets/:id/complete', assetId, async (c) =>
+			c.json(await completeAsset(mediaDeps(), c.req.param('id'), c.get('now')))
 		)
 		.get('/pages/:id/revisions', pageId, async (c) => {
 			const revisions = await pages.listRevisions(db, c.req.param('id'));
