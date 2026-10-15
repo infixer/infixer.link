@@ -1,0 +1,2 @@
+# Copy to .dev.vars for local secrets. Never commit .dev.vars.
+# Phase 0 needs no secrets. Phase 1 will add auth-related values here.

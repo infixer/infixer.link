@@ -1,0 +1,18 @@
+{
+	"name": "infixer-link",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@10.11.1",
+	"engines": {
+		"node": ">=24"
+	},
+	"scripts": {
+		"dev": "pnpm --filter web dev",
+		"build": "pnpm --filter web build",
+		"check": "pnpm -r check",
+		"lint": "pnpm -r lint",
+		"test": "pnpm -r test",
+		"test:e2e": "pnpm --filter web test:e2e",
+		"perf:bundle": "pnpm --filter web perf:bundle"
+	}
+}
