@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm --filter web check && pnpm --filter @garden/time check
+      - name: Lint
+        run: pnpm --filter web lint
+      - name: Unit tests
+        run: pnpm --filter @garden/time test && pnpm --filter web test:unit
+      - name: Workers integration tests
+        run: pnpm --filter web test:workers
+
+      - name: Install Playwright browsers
+        run: pnpm --filter web exec playwright install --with-deps chromium webkit
+      - name: E2E (includes production build and JS budget)
+        run: pnpm --filter web test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-results
+          path: apps/web/test-results
+          retention-days: 7
