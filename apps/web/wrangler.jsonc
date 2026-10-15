@@ -13,7 +13,13 @@
 	"preview_urls": false,
 	"vars": {
 		"SITE_TIME_ZONE": "Asia/Tokyo",
-		"APP_ENV": "local"
+		"APP_ENV": "local",
+		// WebAuthn RP ID and the exact origins allowed to authenticate / mutate.
+		// Fixed per environment (ADR 0004); never derived from the Host header.
+		// production: RP_ID "infixer.link", APP_ORIGINS "https://infixer.link"
+		// staging:    RP_ID "staging.infixer.link", APP_ORIGINS "https://staging.infixer.link"
+		"RP_ID": "localhost",
+		"APP_ORIGINS": "http://localhost:5173,http://localhost:4173"
 	},
 	// Local-only placeholders. Real resource IDs are created per environment
 	// (staging/production) with explicit user approval; never guess them.

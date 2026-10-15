@@ -4,7 +4,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "wrangler d1 migrations apply DB --local && vite dev",
 		"build": "vite build",
 		"preview": "wrangler dev .svelte-kit/cloudflare/_worker.js --port 4173",
 		"prepare": "svelte-kit sync && wrangler types || echo ''",
@@ -17,13 +17,16 @@
 		"test:e2e": "playwright test",
 		"gen": "wrangler types",
 		"test:workers": "vitest --run --config vitest.workers.config.ts",
-		"perf:bundle": "playwright test --grep @perf --project=chromium"
+		"perf:bundle": "playwright test --grep @perf --project=chromium",
+		"db:migrate": "wrangler d1 migrations apply DB --local",
+		"db:seed": "node scripts/seed-local.ts",
+		"owner:grant": "node scripts/owner-grant.ts",
+		"e2e:server": "rm -rf .wrangler/e2e && wrangler d1 migrations apply DB --local --persist-to .wrangler/e2e && wrangler dev --port 4173 --persist-to .wrangler/e2e"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-plugin": "1.4.2",
 		"@eslint/js": "^10.0.1",
 		"@playwright/test": "^1.60.0",
-		"@simplewebauthn/server": "14.0.3",
 		"@sveltejs/adapter-cloudflare": "^8.0.0",
 		"@sveltejs/kit": "^3.0.0",
 		"@sveltejs/vite-plugin-svelte": "^7.2.0",
@@ -47,6 +50,14 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"dependencies": {
-		"@infixer-link/time": "workspace:*"
+		"@hono/standard-validator": "^0.4.0",
+		"@infixer-link/content": "workspace:*",
+		"@infixer-link/contracts": "workspace:*",
+		"@infixer-link/time": "workspace:*",
+		"@simplewebauthn/browser": "14.0.0",
+		"@simplewebauthn/server": "14.0.3",
+		"@standard-schema/spec": "^1.1.0",
+		"hono": "^4.13.13",
+		"valibot": "^1.5.0"
 	}
 }

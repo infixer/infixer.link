@@ -2,7 +2,7 @@
 
 - 日付：2026-10-15
 - 状態：採用（ローカル workerd で実証。本番 D1 は未検証）
-- 検証：`apps/web/tests/workers/d1-capabilities.test.ts`
+- 検証：Phase 0 の試作テスト（削除済み）→ Phase 1 で本番スキーマ `migrations/0001_pages.sql` に対する `apps/web/tests/workers/pages.test.ts` に置き換え
 
 ## 背景
 

@@ -13,7 +13,7 @@ test.describe('SSR without JavaScript', () => {
 
 	test('renders the page and the JST date on the server', async ({ page }) => {
 		await page.goto('/');
-		await expect(page.locator('h1')).toHaveText('infixer.link');
+		await expect(page.locator('header .brand')).toHaveText('infixer.link');
 		await expect(page.getByTestId('today')).toHaveText(tokyoToday());
 		await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
 	});

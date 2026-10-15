@@ -28,12 +28,23 @@ pnpm --filter web build        # production build
 pnpm --filter web preview      # build 結果を wrangler dev（workerd）で配信 :4173
 ```
 
-ローカルの D1 / R2 は Wrangler が `apps/web/.wrangler/` に作る（Git 対象外）。
+ローカルの D1 / R2 は Wrangler が `apps/web/.wrangler/` に作る（Git 対象外）。`pnpm dev` は起動前にマイグレーションを適用する。
+
+### ローカルで本人ログインを試す
+
+```sh
+pnpm --filter web db:seed       # サンプルページ（任意）
+pnpm --filter web owner:grant   # セットアップコードを表示
+# http://localhost:5173/owner/setup にコードを貼り付けてパスキー登録
+# 以後は http://localhost:5173/owner/login
+```
+
+詳細は [`ops/runbooks/owner-auth.md`](ops/runbooks/owner-auth.md)。
 
 ## テスト
 
 ```sh
-pnpm --filter @infixer-link/time test   # Temporal ラッパー
+pnpm --filter './packages/**' test     # time / content / contracts
 pnpm --filter web test            # unit + Workers 統合（D1 / R2 / WebAuthn）
 pnpm --filter web test:e2e        # Playwright（Chromium / WebKit / iPhone viewport）
 pnpm --filter web perf:bundle     # 公開初回 JS の予算チェック
